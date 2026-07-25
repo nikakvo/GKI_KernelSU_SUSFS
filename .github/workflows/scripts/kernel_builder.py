@@ -381,6 +381,8 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
         with open(config_file, "a") as f:
             f.write(self.KERNEL_CONFIG_TEMPLATE)
+        with open(config_file, "a") as f:
+            f.write("CONFIG_CFG80211=y\nCONFIG_MAC80211=y\nCONFIG_ATH_COMMON=m\nCONFIG_ATH9K_HTC=m\n")
             if self.config.kernel_version != "6.6":
                 f.write("CONFIG_KSU_SUSFS_SUS_PATH=y\n")
             else:
