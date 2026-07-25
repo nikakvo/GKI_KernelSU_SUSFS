@@ -385,9 +385,6 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 f.write("CONFIG_KSU_SUSFS_SUS_PATH=y\n")
             else:
                 f.write("CONFIG_KSU_SUSFS_SUS_PATH=n\n")
-
-        with open(config_file, "a") as f:
-            f.write("CONFIG_ATH_COMMON=y\nCONFIG_ATH9K_HTC=y\n")
       
         if self.config.use_zram:
             self._configure_zram()
