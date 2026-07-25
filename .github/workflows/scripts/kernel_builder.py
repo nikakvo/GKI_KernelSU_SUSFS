@@ -352,6 +352,13 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 with open(task_mmu, "w") as f:
                     f.write(content)
 
+        with open(task_mmu, "r") as f:
+            content = f.read()
+        if "struct dentry *dentry;\n" in content:
+            content = content.replace("struct dentry *dentry;\n", "struct dentry *dentry = NULL;\n")
+            with open(task_mmu, "w") as f:
+                f.write(content)
+
     def _fix_base_c_header(self):
         base_c = self.work_dir / "common/fs/proc/base.c"
         if not base_c.exists():
