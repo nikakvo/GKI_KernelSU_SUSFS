@@ -320,16 +320,11 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             (self.sukisu_patch_dir / "other/zram/lz4k_oplus", "lib/"),
         ]:
             if src[0].exists():
-                self._run_cmd(f"cp -r {src[0]}/* {src[1]}", check=False)
+                self._run_cmd(
+                    f"find {src[0]} -mindepth 1 -maxdepth 1 ! -name Kconfig ! -name Makefile -exec cp -r {{}} {src[1]} \\;",
+                    check=False,
+                )
         zram_patch_dir = self.sukisu_patch_dir / f"other/zram/zram_patch/{self.config.kernel_version}"
-        logger.info("=== DEBUG: 文件行数检查 ===")
-        self._run_cmd("wc -l lib/Kconfig lib/Makefile", check=False)
-        logger.info("=== DEBUG: lz4k/lib 源目录内容 ===")
-        self._run_cmd(f"ls -la {self.sukisu_patch_dir}/other/zram/lz4k/lib/", check=False)
-        logger.info("=== DEBUG: lz4k_oplus 源目录内容 ===")
-        self._run_cmd(f"ls -la {self.sukisu_patch_dir}/other/zram/lz4k_oplus/", check=False)
-        logger.info("=== DEBUG: 当前 lib/Kconfig 完整内容 ===")
-        self._run_cmd("cat lib/Kconfig", check=False)
         for patch in ["lz4kd.patch", "lz4k_oplus.patch"]:
             p = zram_patch_dir / patch
             if p.exists():
