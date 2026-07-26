@@ -322,6 +322,10 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             if src[0].exists():
                 self._run_cmd(f"cp -r {src[0]}/* {src[1]}", check=False)
         zram_patch_dir = self.sukisu_patch_dir / f"other/zram/zram_patch/{self.config.kernel_version}"
+        logger.info("=== DEBUG: 当前 lib/Kconfig (300-365行) ===")
+        self._run_cmd("sed -n '300,365p' lib/Kconfig", check=False)
+        logger.info("=== DEBUG: 当前 lib/Makefile (165,225行) ===")
+        self._run_cmd("sed -n '165,225p' lib/Makefile", check=False)
         for patch in ["lz4kd.patch", "lz4k_oplus.patch"]:
             p = zram_patch_dir / patch
             if p.exists():
