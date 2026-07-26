@@ -98,7 +98,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
-    ZRAM_CONFIG_COMMON = "CONFIG_CRYPTO_LZ4HC=y\nCONFIG_CRYPTO_LZ4K=y\nCONFIG_CRYPTO_LZ4KD=y\nCONFIG_CRYPTO_842=y\nCONFIG_CRYPTO_LZ4K_OPLUS=y\nCONFIG_ZRAM_WRITEBACK=y\n"
+    ZRAM_CONFIG_COMMON = "CONFIG_CRYPTO_LZ4HC=y\nCONFIG_CRYPTO_LZ4K=y\nCONFIG_CRYPTO_LZ4KD=y\nCONFIG_CRYPTO_LZ4K_OPLUS=y\nCONFIG_ZRAM_WRITEBACK=y\n"
 
     def __init__(self, config: BuildConfig, workspace: str):
         self.config = config
@@ -586,8 +586,6 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             else:
                 logger.info("使用 Bazel 构建方式...")
                 result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
-
-            self._run_cmd("find . -maxdepth 6 -name '.config' -exec grep -H 'CONFIG_KEYS\\|ASSOCIATIVE_ARRAY\\|CONFIG_ZRAM\\|CONFIG_CRYPTO_LZ4\\|CONFIG_CRYPTO_842' {} \\;", check=False)
 
             if result.returncode == 0:
                 logger.info("=== 内核编译成功 ===")
