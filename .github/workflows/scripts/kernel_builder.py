@@ -593,6 +593,11 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             if (self.work_dir / "build/build.sh").exists():
                 logger.info("使用旧版构建方式...")
                 result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
+
+            if result.returncode != 0 and "vgettimeofday" in (result.stderr or ""):
+                logger.info("=== 检测到已知的 vdso 竞争条件，自动重试 ===")
+                result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
+          
             else:
                 logger.info("使用 Bazel 构建方式...")
                 result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
