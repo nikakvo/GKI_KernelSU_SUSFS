@@ -587,6 +587,9 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 logger.info("使用 Bazel 构建方式...")
                 result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
 
+            self._run_cmd("grep -rn 'ASSOCIATIVE_ARRAY' --include='Kconfig*' . || echo 'NOTFOUND_IN_SOURCE'", check=False)
+            self._run_cmd("find . -maxdepth 6 -name '.config' -exec grep -H 'CONFIG_KEYS\\|ASSOCIATIVE_ARRAY' {} \\;", check=False)
+
             if result.returncode == 0:
                 logger.info("=== 内核编译成功 ===")
                 return True
