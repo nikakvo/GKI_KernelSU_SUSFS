@@ -1,66 +1,65 @@
-# GKI SukiSU-Ultra + SUSFS 构建系统
+# GKI SukiSU-Ultra + SUSFS Build System
 
-### 这是一个自动构建 GKI 内核的仓库
+### This is an automated repository for building GKI kernels
 
-> 不支持一加 ColorOS14、15 和非 GKI 
+> Does not support OnePlus ColorOS 14/15 or non-GKI devices
 
-> 第一次使用务必 **详细阅读** 以下内容，不要因为懒惰而占用他人时间！
+> If this is your first time using it, please **read the following carefully** — don't waste other people's time out of laziness!
 
-> 使用 Python 辅助构建系统，支持指定 SukiSU-Ultra/SUSFS commit 版本构建
-
+> Uses a Python-assisted build system, supports building against specific SukiSU-Ultra/SUSFS commit versions
 
 ---
 
-## 快速开始
+## Quick Start
 
 ### GitHub Actions
 
-#### 方式一：构建单个版本
-1. 进入 **Actions** 页面
-2. 选择 **Kernel Build**
-3. 点击 **Run workflow**
-4. 选择 Android 版本、Kernel 版本和构建选项
-5. 可选：指定 SukiSU-Ultra 或 SUSFS 的 commit hash
+#### Method 1: Build a single version
+1. Go to the **Actions** tab
+2. Select **Kernel Build**
+3. Click **Run workflow**
+4. Choose the Android version, kernel version, and build options
+5. Optional: specify a SukiSU-Ultra or SUSFS commit hash
 
-#### 方式二：构建所有版本
-1. 选择 **Build Kernels**
-2. 点击 **Run workflow**
-3. 设置全局选项（KSU 版本、ZRAM、KPM 等）
-4. 可选：指定 commit 版本
+#### Method 2: Build all versions
+1. Select **Build Kernels**
+2. Click **Run workflow**
+3. Set the global options (KSU version, ZRAM, KPM, etc.)
+4. Optional: specify commit versions
 
-### 命令行本地构建
+### Command-line local build
 
 ```bash
-# 进入构建目录
+# Enter the build directory
 cd .github/workflows/scripts
 
-# 安装依赖
+# Install dependencies
 pip install PyYAML
 
-# 构建单个版本
+# Build a single version
 python build.py --android android14 --kernel 6.1 --sub-level 124 --os-patch 2025-02
 
-# 构建整个矩阵
+# Build an entire matrix entry
 python build.py --matrix android14-6.1
 
-# 构建所有版本
+# Build all versions
 python build.py --all
 
-# 指定 commit 版本
+# Specify commit versions
 python build.py --all --ksu-commit abc1234 --susfs-commit HEAD~1
 
-# 列出所有支持的配置
+# List all supported configurations
 python build.py --list-configs
 
-# 列出预定义构建矩阵
+# List predefined build matrices
 python build.py --list-matrix
 ```
 
 ---
 
-## 构建矩阵
+## Build Matrix
 
-从 `matrix.json` 加载：
+Loaded from `matrix.json`:
 
 | Android | Kernel | Sub Levels | OS Patch |
 |---------|--------|------------|----------|
@@ -69,113 +68,112 @@ python build.py --list-matrix
 | 14 | 6.1 | 78, 90, 99, 124, 145 | 2024-06 ~ 2025-09 |
 | 15 | 6.6 | 50, 66, 102 | 2024-10 ~ 2025-10 |
 
-总计 **19 个版本组合**
+**19 version combinations** total
 
 ---
 
-## 命令行参数
+## Command-Line Arguments
 
-| 参数 | 说明 | 默认值 |
+| Argument | Description | Default |
 |------|------|--------|
-| `--android`, `-a` | Android 版本 (android12/13/14/15) | android14 |
-| `--kernel`, `-k` | Kernel 版本 (5.10/5.15/6.1/6.6) | 6.1 |
-| `--sub-level`, `-s` | Sub level 版本或 X (LTS) | 124 |
+| `--android`, `-a` | Android version (android12/13/14/15) | android14 |
+| `--kernel`, `-k` | Kernel version (5.10/5.15/6.1/6.6) | 6.1 |
+| `--sub-level`, `-s` | Sub level version or X (LTS) | 124 |
 | `--os-patch` | OS Patch Level | 2025-02 |
 | `--revision` | Android 12 Revision | - |
-| `--ksu-version` | SukiSU-Ultra 版本 (Stable/Dev) | Stable(标准) |
-| `--ksu-commit` | 指定 SukiSU-Ultra commit hash | latest |
-| `--susfs-commit` | 指定 SUSFS commit (hash 或 HEAD~N) | latest |
-| `--zram` | 启用 ZRAM (LZ4KD) | False |
-| `--no-kpm` | 禁用 KPM | False |
-| `--bbg` | 启用 Baseband-guard | False |
-| `--op8e` | 启用 OnePlus 8E 支持 | False |
-| `--bbr` | 设置 BBR 为默认拥塞算法 | False |
-| `--no-release` | 不创建 GitHub Release | False |
-| `--custom-version` | 自定义版本名称 | - |
-| `--matrix`, `-m` | 使用预定义矩阵 | - |
-| `--all` | 构建所有配置 | - |
-| `--list-configs` | 列出所有支持的配置 | - |
-| `--list-matrix` | 列出所有预定义矩阵 | - |
-| `--dry-run` | 仅验证配置 | - |
-| `--workspace`, `-w` | 工作目录 | /tmp/gki-build |
+| `--ksu-version` | SukiSU-Ultra version (Stable/Dev) | Stable |
+| `--ksu-commit` | Specify a SukiSU-Ultra commit hash | latest |
+| `--susfs-commit` | Specify a SUSFS commit (hash or HEAD~N) | latest |
+| `--zram` | Enable ZRAM (LZ4KD) | False |
+| `--no-kpm` | Disable KPM | False |
+| `--bbg` | Enable Baseband-guard | False |
+| `--op8e` | Enable OnePlus 8E support | False |
+| `--bbr` | Set BBR as the default congestion control algorithm | False |
+| `--no-release` | Don't create a GitHub Release | False |
+| `--custom-version` | Custom version name | - |
+| `--matrix`, `-m` | Use a predefined matrix entry | - |
+| `--all` | Build all configurations | - |
+| `--list-configs` | List all supported configurations | - |
+| `--list-matrix` | List all predefined matrices | - |
+| `--dry-run` | Only validate the configuration | - |
+| `--workspace`, `-w` | Working directory | /tmp/gki-build |
 
 ---
 
-## 下载
+## Downloads
 
-1. **AnyKernel3.zip** - 下载即用！
-   - 使用刷入软件，例如 [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases) 进行刷写内核
+1. **AnyKernel3.zip** — ready to flash!
+   - Use a flashing tool such as [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases) to flash the kernel
 
-2. **boot.img** - 下载与你内核格式相匹配的（无压缩、gz、lz4）
-   - 使用 [Fastboot](https://magiskcn.com/) 刷入
+2. **boot.img** — download the format matching your kernel (uncompressed, gz, lz4)
+   - Flash using [Fastboot](https://magiskcn.com/)
 
 ---
 
-## 支持的功能
+## Supported Features
 
-| 功能 | 说明 |
+| Feature | Description |
 |------|------|
-| [KernelSU](https://kernelsu.org/zh_CN/) | SukiSU 内核Root方案 |
-| [SUSFS4](https://gitlab.com/simonpunk/susfs4ksu) | 内核层面辅助 KSU 隐藏的功能补丁 |
-| [BBR](https://blog.thinkin.top/archives/ke-pu-bbrdao-di-shi-shi-me) | TCP 拥塞控制算法 |
-| [LZ4KD](https://github.com/ShirkNeko/SukiSU_patch/tree/main/other) | 来自华为源码的 ZRAM 算法 |
-| [KPM](https://github.com/bmax121/KernelPatch) | 内核模块支持 |
-| [Baseband-guard](https://github.com/vc-teahouse/Baseband-guard) | 基带安全防护 |
+| [KernelSU](https://kernelsu.org/) | SukiSU kernel-level root solution |
+| [SUSFS4](https://gitlab.com/simonpunk/susfs4ksu) | Kernel-level patches that assist KSU in hiding root |
+| [BBR](https://blog.thinkin.top/archives/ke-pu-bbrdao-di-shi-shi-me) | TCP congestion control algorithm |
+| [LZ4KD](https://github.com/ShirkNeko/SukiSU_patch/tree/main/other) | A ZRAM compression algorithm sourced from Huawei's codebase |
+| [KPM](https://github.com/bmax121/KernelPatch) | Kernel module support |
+| [Baseband-guard](https://github.com/vc-teahouse/Baseband-guard) | Baseband security protection |
 
 <details>
+<summary>Supported ZRAM algorithms (switchable in Scene)</summary>
 
-<summary>支持的 ZRAM 算法（可在 Scene 切换）</summary>
-
-LZ4K、LZ4HC、deflate、842、lz4k_oplus
+LZ4K, LZ4HC, deflate, 842, lz4k_oplus
 
 </details>
 
 ---
 
-## KSU 管理器
+## KSU Manager
 
-在编译完成后，会生成最新的管理器 APK。
+After the build completes, the latest manager APK is generated.
 
 ---
 
-## 紧急救援指南
+## Emergency Recovery Guide
 
-> **触发条件**
-> 当设备因刷入错误/不兼容的内核无法启动时需执行救援
+> **Trigger condition**
+> Use this if the device fails to boot due to a bad or incompatible kernel flash
 
-1. 进入 Fastboot 模式
-   - 物理键组合：电源+音量-
-   - 或 ADB 命令：`adb reboot bootloader`
+1. Enter Fastboot mode
+   - Physical button combo: Power + Volume Down
+   - Or ADB command: `adb reboot bootloader`
 
-2. 执行刷写命令
+2. Run the flash command
 ```bash
-fastboot flash boot <boot.img文件全称>
+fastboot flash boot <full_boot.img_filename>
 ```
 
 ---
 
-## 内核版本兼容性说明
+## Kernel Version Compatibility Notes
 
-### 1. 跨子版本刷机规则
+### 1. Cross sub-version flashing rules
 
-当手机 GKI 主版本为 5.10.x 时（如 5.10.168），可刷写同主版本更高子版本的内核（如 5.10.198）。
+If your phone's main GKI version is 5.10.x (e.g. 5.10.168), you can flash a kernel with a higher sub-version under the same major version (e.g. 5.10.198).
 
-关于 **X-lts** 版本，以 `android12-5.10.X-lts-AnyKernel3.zip` 为例：
-- **X-lts** 表示长期支持版（子版本号最大，当前示例为 5.10.236）
-- LTS 随着 GKI 源码更新，编译版本号将持续递增
-- ⚠️ 注意：LTS 虽为最新，但最新版 ≠ 最稳定（如 6.6.x 存在自动重启 BUG）
+Regarding the **X-lts** version, using `android12-5.10.X-lts-AnyKernel3.zip` as an example:
+- **X-lts** denotes the Long Term Support build (the highest sub-version number, 5.10.236 in this example)
+- As the GKI source updates, the LTS build number keeps incrementing
+- ⚠️ Note: LTS being the newest doesn't mean it's the most stable (e.g. 6.6.x has a known auto-reboot bug)
 
-### 2. 内核版本伪装方法
+### 2. Kernel version spoofing method
 
-在 MT 管理器终端执行：
+Run the following in an MT Manager terminal:
 ```bash
 uname -r | sed 's/^[^-]*//'
 ```
-获取后复制版本号，填入 Action 编译面板即可实现内核版本伪装。
+Copy the resulting version string and paste it into the Action's build panel to spoof the kernel version.
 
-### 3. 定制构建矩阵
+### 3. Customizing the build matrix
 
-编辑 `.github/workflows/config/matrix.json` 添加或修改构建版本：
+Edit `.github/workflows/config/matrix.json` to add or modify build versions:
 ```json
 {
   "android14-6.1": [
@@ -187,46 +185,42 @@ uname -r | sed 's/^[^-]*//'
 
 ---
 
-## 构建系统架构
+## Build System Architecture
 
 ```
 .github/workflows/
 ├── config/
-│   └── matrix.json          # 构建矩阵配置
+│   └── matrix.json          # Build matrix configuration
 ├── scripts/
-│   ├── build.py             # 主构建脚本（CLI 入口）
-│   ├── kernel_builder.py    # 内核构建核心类
-│   ├── config.py            # 配置定义和验证
-│   ├── matrix_generator.py  # GitHub Actions 矩阵生成
-│   ├── release_generator.py # Release 说明生成
-│   └── cache_manager.py     # 构建缓存管理
-├── kernel-build.yml         # 单版本构建工作流
-└── build-kernels.yml        # 全量构建工作流
+│   ├── build.py             # Main build script (CLI entry point)
+│   ├── kernel_builder.py    # Core kernel build class
+│   ├── config.py            # Configuration definitions and validation
+│   ├── matrix_generator.py  # GitHub Actions matrix generator
+│   ├── release_generator.py # Release notes generator
+│   └── cache_manager.py     # Build cache management
+├── kernel-build.yml         # Single-version build workflow
+└── build-kernels.yml        # Full build workflow
 ```
 
-### 核心组件
+### Core Components
 
-| 组件 | 功能 |
+| Component | Function |
 |------|------|
-| `KernelBuilder` | 内核构建核心类，负责克隆源码、应用补丁、编译、打包 |
-| `BuildConfig` | 构建配置数据类，包含所有构建参数 |
-| `CacheManager` | 管理 ccache 和构建缓存，支持跨分支复用 |
-| `matrix_generator.py` | 为 GitHub Actions 生成构建矩阵 |
-| `release_generator.py` | 自动生成 Release 说明 |
+| `KernelBuilder` | Core kernel build class — handles cloning source, applying patches, compiling, and packaging |
+| `BuildConfig` | Build configuration data class containing all build parameters |
+| `CacheManager` | Manages ccache and build cache, supports cross-branch reuse |
+| `matrix_generator.py` | Generates the build matrix for GitHub Actions |
+| `release_generator.py` | Automatically generates Release notes |
 
-### 仓库依赖
+### Repository Dependencies
 
-| 仓库 | 用途 |
+| Repository | Purpose |
 |------|------|
-| [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) |  SukiSU-Ultra 源码和安装脚本 |
-| [susfs4ksu](https://github.com/ShirkNeko/susfs4ksu) | SUSFS 内核补丁 |
-| [SukiSU_patch](https://github.com/ShirkNeko/SukiSU_patch) | SukiSU-Ultra 附加补丁（ZRAM 等） |
-| [AnyKernel3](https://github.com/WildPlusKernel/AnyKernel3) | 通用刷机包模板 |
-| [kernel_patches](https://github.com/Tools-cx-app/kernel_patches) | 内核补丁合集 |
-| [Baseband-guard](https://github.com/vc-teahouse/Baseband-guard) | 基带安全防护 |
+| [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) | SukiSU-Ultra source code and setup script |
+| [susfs4ksu](https://github.com/ShirkNeko/susfs4ksu) | SUSFS kernel patches |
+| [SukiSU_patch](https://github.com/ShirkNeko/SukiSU_patch) | Additional SukiSU-Ultra patches (ZRAM, etc.) |
+| [AnyKernel3](https://github.com/WildPlusKernel/AnyKernel3) | Generic flashable package template |
+| [kernel_patches](https://github.com/Tools-cx-app/kernel_patches) | Kernel patch collection |
+| [Baseband-guard](https://github.com/vc-teahouse/Baseband-guard) | Baseband security protection |
 
 ---
-
-## 更多内容
-
-可以提及您的意见...我会尝试！
