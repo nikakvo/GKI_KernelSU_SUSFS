@@ -34,7 +34,7 @@ on:
         description: '启用 ZRAM (LZ4KD)'
         required: true
         type: boolean
-        default: false
+        default: true
       use_kpm:
         description: '启用 KPM'
         required: true
@@ -45,6 +45,11 @@ on:
         required: true
         type: boolean
         default: false
+      set_defbbr:
+        description: '设置 BBR 为默认拥塞算法'
+        required: true
+        type: boolean
+        default: true
       make_release:
         description: '创建 GitHub Release'
         required: true
@@ -158,6 +163,7 @@ jobs:
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
+          [ "${{ github.event.inputs.set_defbbr }}" = "true" ] && ARGS="$ARGS --bbr"
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
           [ -z "${{ github.event.inputs.custom_version }}" ] || ARGS="$ARGS --custom-version=${{ github.event.inputs.custom_version }}"
@@ -301,7 +307,7 @@ jobs:
           echo "Release URL: $RELEASE_URL"
 
       - name: Send Telegram Notification
-        if: ${{ github.event.inputs.send_telegram == 'true' }}
+        if: ${{ github.event.inputs.send_telegram == 'false' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
