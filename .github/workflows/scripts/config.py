@@ -7,12 +7,12 @@ import ssl
 
 
 def get_susfs_version() -> str:
-    """从 susfs 仓库获取版本号"""
+    """Fetch the version number from the susfs repository"""
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    # 尝试多个分支获取版本号
+    # Try multiple branches to get the version number
     branches = ["gki-android15-6.6", "gki-android14-6.1", "gki-android13-5.15", "gki-android12-5.10", "main"]
     version_pattern = re.compile(r'#define\s+SUSFS_VERSION\s+"([^"]+)"')
 
@@ -28,11 +28,11 @@ def get_susfs_version() -> str:
         except Exception:
             continue
 
-    # 如果获取失败，返回默认值
+    # If fetching fails, return the default value
     return "v2.1.0"
 
 
-# 内核版本号 - 从 susfs 仓库自动获取
+# Kernel version - automatically fetched from the susfs repository
 KERNEL_VERSION = get_susfs_version()
 print(f"SUSFS Version: {KERNEL_VERSION}")
 
@@ -52,8 +52,8 @@ class KernelVersion(Enum):
 
 
 class KSUVersion(Enum):
-    STABLE = "Stable(标准)"
-    DEV = "Dev(开发)"
+    STABLE = "Stable"
+    DEV = "Dev"
 
 
 ANDROID_KERNEL_MAP = {
@@ -63,28 +63,28 @@ ANDROID_KERNEL_MAP = {
     AndroidVersion.ANDROID15: [KernelVersion.KERNEL_6_6],
 }
 
-# 仓库配置
+# Repository configuration
 KSU_REPO_CONFIG = {"repo_url": "https://github.com/SukiSU-Ultra/SukiSU-Ultra.git",
                     "branch": "main",
                     "setup_script": "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh"}
 
-# SUSFS 仓库配置
+# SUSFS repository configuration
 SUSFS_REPO_CONFIG = {"repo_url": "https://github.com/ShirkNeko/susfs4ksu.git"}
 
-# SukiSU Patch 仓库配置
+# SukiSU Patch repository configuration
 SUKISU_PATCH_REPO_CONFIG = {"repo_url": "https://github.com/ShirkNeko/SukiSU_patch.git"}
 
-# AnyKernel3 仓库配置
+# AnyKernel3 repository configuration
 ANYKERNEL_CONFIG = {"repo_url": "https://github.com/WildPlusKernel/AnyKernel3.git", "branch": "gki-2.0"}
 
-# Kernel Patches 仓库配置
+# Kernel Patches repository configuration
 KERNEL_PATCHES_CONFIG = {"repo_url": "https://github.com/Tools-cx-app/kernel_patches.git"}
 
-# Baseband-guard 配置
+# Baseband-guard configuration
 BBG_CONFIG = {"repo_url": "https://github.com/vc-teahouse/Baseband-guard.git",
               "setup_script": "https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh"}
 
-# 工具链配置
+# Toolchain configuration
 TOOLCHAIN_CONFIG = {"aosp_mirror": "https://android.googlesource.com",
                     "build_tools_branch": "main-kernel-build-2024",
                     "mkbootimg_branch": "main-kernel-build-2024"}
@@ -102,14 +102,14 @@ class BuildConfig:
     kernel_version: str
     sub_level: str
     os_patch_level: str
-    kernelsu_version: str = "Stable(标准)"
+    kernelsu_version: str = "Stable"
     kernelsu_commit: Optional[str] = None
     susfs_commit: Optional[str] = None
     use_zram: bool = False
     use_kpm: bool = True
     use_bbg: bool = False
     support_op8e: bool = False
-    set_default_bbr: bool = False
+    bbr_version: str = "bbr1"
     make_release: bool = True
     custom_version: Optional[str] = None
     revision: Optional[str] = None
@@ -120,27 +120,33 @@ class BuildConfig:
         self._validate_kernel_version()
         self._validate_kernel_android_compat()
         self._validate_sub_level()
+        self._validate_bbr_version()
         self._set_build_id()
 
     def _validate_android_version(self):
         valid = [v.value for v in AndroidVersion]
         if self.android_version not in valid:
-            raise ValueError(f"无效的 Android 版本: {self.android_version}. 支持: {', '.join(valid)}")
+            raise ValueError(f"Invalid Android version: {self.android_version}. Supported: {', '.join(valid)}")
 
     def _validate_kernel_version(self):
         valid = [v.value for v in KernelVersion]
         if self.kernel_version not in valid:
-            raise ValueError(f"无效的 Kernel 版本: {self.kernel_version}. 支持: {', '.join(valid)}")
+            raise ValueError(f"Invalid Kernel version: {self.kernel_version}. Supported: {', '.join(valid)}")
 
     def _validate_kernel_android_compat(self):
         av = AndroidVersion(self.android_version)
         kv = KernelVersion(self.kernel_version)
         if kv not in ANDROID_KERNEL_MAP.get(av, []):
-            raise ValueError(f"Android {self.android_version} 不支持 Kernel {self.kernel_version}")
+            raise ValueError(f"Android {self.android_version} does not support Kernel {self.kernel_version}")
 
     def _validate_sub_level(self):
         if self.sub_level != "X" and not self.sub_level.isdigit():
-            raise ValueError(f"无效的 sub_level: {self.sub_level}")
+            raise ValueError(f"Invalid sub_level: {self.sub_level}")
+
+    def _validate_bbr_version(self):
+        valid = ("none", "bbr1")
+        if self.bbr_version not in valid:
+            raise ValueError(f"Invalid bbr_version: {self.bbr_version}. Supported: {', '.join(valid)}")
 
     def _set_build_id(self):
         if self.build_id is None:
@@ -179,7 +185,7 @@ class BuildConfig:
             "use_kpm": self.use_kpm,
             "use_bbg": self.use_bbg,
             "support_op8e": self.support_op8e,
-            "set_default_bbr": self.set_default_bbr,
+            "bbr_version": self.bbr_version,
             "make_release": self.make_release,
             "custom_version": self.custom_version,
             "revision": self.revision,
