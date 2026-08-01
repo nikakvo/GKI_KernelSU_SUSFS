@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       android_version:
-        description: 'Android 版本'
+        description: 'Android Version'
         required: true
         type: choice
         options:
@@ -18,7 +18,7 @@ on:
           - android15
         default: android13
       kernel_version:
-        description: 'Kernel 版本'
+        description: 'Kernel Version'
         required: true
         type: choice
         options:
@@ -28,7 +28,7 @@ on:
           - "6.6"
         default: "5.15"
       sub_level:
-        description: 'Sub Level 版本'
+        description: 'Sub Level Version'
         required: true
         type: string
         default: '124'
@@ -38,65 +38,68 @@ on:
         type: string
         default: '2025-02'
       revision:
-        description: 'Android 12 Revision (可选)'
+        description: 'Android 12 Revision (optional)'
         required: false
         type: string
         default: ''
       kernelsu_version:
-        description: 'SukiSU 版本'
+        description: 'SukiSU Version'
         required: true
         type: choice
         options:
-          - Stable(标准)
-          - Dev(开发)
-        default: Stable(标准)
+          - Stable
+          - Dev
+        default: Stable
       kernelsu_commit:
-        description: '指定 KernelSU commit hash (可选)'
+        description: 'Specify KernelSU commit hash (optional)'
         required: false
         type: string
         default: ''
       susfs_commit:
-        description: '指定 SUSFS commit hash'
+        description: 'Specify SUSFS commit hash (optional)'
         required: false
         type: string
         default: ''
       custom_version:
-        description: '自定义版本名称 (可选)'
+        description: 'Custom version name (optional)'
         required: false
         type: string
         default: ''
       use_zram:
-        description: '启用 ZRAM (LZ4KD)'
+        description: 'Enable ZRAM (LZ4KD)'
         required: true
         type: boolean
         default: false
       use_kpm:
-        description: '启用 KPM'
+        description: 'Enable KPM'
         required: true
         type: boolean
         default: true
       BBG:
-        description: '启用 Baseband-guard'
+        description: 'Enable Baseband-guard'
         required: true
         type: boolean
         default: false
       supp_op:
-        description: '启用 OnePlus 8E 支持'
+        description: 'Enable OnePlus 8E support'
         required: true
         type: boolean
         default: false
-      set_defbbr:
-        description: '设置 BBR 为默认拥塞算法'
+      bbr_version:
+        description: 'BBR congestion control version'
         required: true
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - none
+          - bbr1
+        default: bbr1
       make_release:
-        description: '创建 GitHub Release'
+        description: 'Create GitHub Release'
         required: true
         type: boolean
         default: true
       send_telegram:
-        description: '发送 Telegram 通知'
+        description: 'Send Telegram notification'
         required: true
         type: boolean
         default: true
@@ -134,6 +137,14 @@ jobs:
           sudo apt install -y ccache python3 git curl wget zip unzip
           pip install PyYAML
 
+      - name: Setup AVB signing key
+        env:
+          BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
+        run: |
+          mkdir -p toolchain/linux-x86/bin
+          echo "$BOOT_SIGN_KEY" > toolchain/linux-x86/bin/testkey.pem
+          echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/toolchain/linux-x86/bin/testkey.pem" >> $GITHUB_ENV
+
       - name: Configure ccache
         run: |
           mkdir -p ~/.cache/bazel
@@ -165,7 +176,7 @@ jobs:
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
           [ "${{ github.event.inputs.supp_op }}" = "true" ] && ARGS="$ARGS --op8e"
-          [ "${{ github.event.inputs.set_defbbr }}" = "true" ] && ARGS="$ARGS --bbr"
+          ARGS="$ARGS --bbr-version ${{ github.event.inputs.bbr_version }}"
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
           [ -z "${{ github.event.inputs.custom_version }}" ] || ARGS="$ARGS --custom-version=${{ github.event.inputs.custom_version }}"
