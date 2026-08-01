@@ -1,30 +1,30 @@
 {
-  "android12-5.10": [
-    {"sub_level": "136", "os_patch_level": "2022-11", "revision": "r15"},
-    {"sub_level": "198", "os_patch_level": "2024-01", "revision": "r17"},
-    {"sub_level": "209", "os_patch_level": "2024-05", "revision": "r13"},
-    {"sub_level": "236", "os_patch_level": "2025-05", "revision": "r1"},
-    {"sub_level": "X", "os_patch_level": "lts", "revision": "r1"}
-  ],
-  "android13-5.15": [
-    {"sub_level": "74", "os_patch_level": "2023-01"},
-    {"sub_level": "123", "os_patch_level": "2023-11"},
-    {"sub_level": "148", "os_patch_level": "2024-05"},
-    {"sub_level": "170", "os_patch_level": "2025-01"},
-    {"sub_level": "178", "os_patch_level": "2025-03"},
-    {"sub_level": "180", "os_patch_level": "2025-05"},
-    {"sub_level": "194", "os_patch_level": "2025-12"}
-  ],
-  "android14-6.1": [
-    {"sub_level": "78", "os_patch_level": "2024-06"},
-    {"sub_level": "90", "os_patch_level": "2024-08"},
-    {"sub_level": "99", "os_patch_level": "2024-10"},
-    {"sub_level": "124", "os_patch_level": "2025-02"},
-    {"sub_level": "145", "os_patch_level": "2025-09"}
-  ],
-  "android15-6.6": [
-    {"sub_level": "50", "os_patch_level": "2024-10"},
-    {"sub_level": "66", "os_patch_level": "2025-02"},
-    {"sub_level": "102", "os_patch_level": "2025-10"}
-  ]
+    "android12-5.10": [
+        {"sub_level": "136", "os_patch_level": "2022-11", "revision": "r15", "enabled": false},
+        {"sub_level": "198", "os_patch_level": "2024-01", "revision": "r17", "enabled": false},
+        {"sub_level": "209", "os_patch_level": "2024-05", "revision": "r13", "enabled": false},
+        {"sub_level": "236", "os_patch_level": "2025-05", "revision": "r1", "enabled": false},
+        {"sub_level": "X", "os_patch_level": "lts", "revision": "r1", "enabled": false}
+    ],
+    "android13-5.15": [
+        {"sub_level": "167", "os_patch_level": "2024-11", "enabled": false},
+        {"sub_level": "170", "os_patch_level": "2025-01", "enabled": true},
+        {"sub_level": "178", "os_patch_level": "2025-03", "enabled": true},
+        {"sub_level": "180", "os_patch_level": "2025-05", "enabled": true},
+        {"sub_level": "185", "os_patch_level": "2025-07", "enabled": true},
+        {"sub_level": "189", "os_patch_level": "2025-09", "enabled": true},
+        {"sub_level": "194", "os_patch_level": "2025-12", "enabled": true}
+    ],
+    "android14-6.1": [
+        {"sub_level": "78", "os_patch_level": "2024-06", "enabled": false},
+        {"sub_level": "90", "os_patch_level": "2024-08", "enabled": false},
+        {"sub_level": "99", "os_patch_level": "2024-10", "enabled": false},
+        {"sub_level": "124", "os_patch_level": "2025-02", "enabled": false},
+        {"sub_level": "145", "os_patch_level": "2025-09", "enabled": false}
+    ],
+    "android15-6.6": [
+        {"sub_level": "50", "os_patch_level": "2024-10", "enabled": false},
+        {"sub_level": "66", "os_patch_level": "2025-02", "enabled": false},
+        {"sub_level": "102", "os_patch_level": "2025-10", "enabled": false}
+    ]
 }
