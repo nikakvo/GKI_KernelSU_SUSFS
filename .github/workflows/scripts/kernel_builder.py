@@ -30,19 +30,19 @@ class ShellCommand:
 
     def run(self, cmd: str, check: bool = True, capture_output: bool = False,
             shell: bool = True, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
-        logger.info(f"执行命令: {cmd}")
+        logger.info(f"Executing command: {cmd}")
         try:
             return subprocess.run(cmd, shell=shell, cwd=self.cwd, env=self.env,
                                 capture_output=capture_output, text=True, timeout=timeout, check=check)
         except subprocess.CalledProcessError as e:
-            logger.error(f"命令执行失败: {e.stderr or str(e)}")
+            logger.error(f"Command failed: {e.stderr or str(e)}")
             raise
         except subprocess.TimeoutExpired:
-            logger.error(f"命令执行超时: {cmd}")
+            logger.error(f"Command timed out: {cmd}")
             raise
 
     def run_with_callback(self, cmd: str, callback: Optional[Callable] = None) -> str:
-        logger.info(f"执行命令: {cmd}")
+        logger.info(f"Executing command: {cmd}")
         process = subprocess.Popen(cmd, shell=True, cwd=self.cwd, env=self.env,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         output_lines = []
@@ -53,7 +53,7 @@ class ShellCommand:
                 callback(line)
         process.wait()
         if process.returncode != 0:
-            raise RuntimeError(f"命令执行失败")
+            raise RuntimeError(f"Command failed")
         return "\n".join(output_lines)
 
 
@@ -81,6 +81,28 @@ CONFIG_TCP_CONG_BIC=n
 CONFIG_TCP_CONG_WESTWOOD=n
 CONFIG_TCP_CONG_HTCP=n
 
+# === Networking Improvements (IP Set / connmark / CAKE / fq_codel) ===
+CONFIG_IP_SET=y
+CONFIG_IP_SET_MAX=256
+CONFIG_IP_SET_BITMAP_IP=y
+CONFIG_IP_SET_BITMAP_IPMAC=y
+CONFIG_IP_SET_BITMAP_PORT=y
+CONFIG_IP_SET_HASH_IP=y
+CONFIG_IP_SET_HASH_IPMARK=y
+CONFIG_IP_SET_HASH_IPPORT=y
+CONFIG_IP_SET_HASH_IPPORTIP=y
+CONFIG_IP_SET_HASH_IPPORTNET=y
+CONFIG_IP_SET_HASH_NET=y
+CONFIG_IP_SET_HASH_NETPORT=y
+CONFIG_IP_SET_HASH_NETIFACE=y
+CONFIG_IP_SET_LIST_SET=y
+CONFIG_NETFILTER_XT_SET=y
+CONFIG_NF_CONNTRACK_MARK=y
+CONFIG_NETFILTER_XT_TARGET_CONNMARK=y
+CONFIG_NETFILTER_XT_MATCH_CONNMARK=y
+CONFIG_NET_SCH_CAKE=y
+CONFIG_NET_SCH_FQ_CODEL=y
+
 # === SUSFS Config ===
 CONFIG_KSU_SUSFS=y
 CONFIG_KSU_SUSFS_SUS_MAP=y
@@ -95,6 +117,13 @@ CONFIG_KSU_SUSFS_ENABLE_LOG=y
 CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
 CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
 CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+
+# === MGLRU (Multi-Gen LRU) Config ===
+CONFIG_LRU_GEN=y
+CONFIG_LRU_GEN_ENABLED=y
+
+# === PSI (Pressure Stall Information) Config ===
+CONFIG_PSI=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -142,7 +171,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self._chdir(self.workspace)
 
     def clone_repositories(self):
-        logger.info("=== 开始克隆仓库 ===")
+        logger.info("=== Cloning repositories ===")
         for name, repo_dir, url, branch in [
             ("SUSFS", self.susfs_dir, SUSFS_REPO_CONFIG['repo_url'], self.config.kernel_branch),
             ("SukiSU Patch", self.sukisu_patch_dir, SUKISU_PATCH_REPO_CONFIG['repo_url'], None),
@@ -153,15 +182,15 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 cmd = f"git clone {url}"
                 if branch:
                     cmd += f" -b {branch}"
-                logger.info(f"克隆 {name}...")
+                logger.info(f"Cloning {name}...")
                 self._run_cmd(cmd, check=False)
             else:
-                logger.info(f"{name} 已存在，跳过")
+                logger.info(f"{name} already exists, skipping")
         self._apply_susfs_commit()
-        logger.info("=== 仓库克隆完成 ===")
+        logger.info("=== Repository cloning complete ===")
 
     def clone_toolchain(self):
-        logger.info("=== 克隆工具链 ===")
+        logger.info("=== Cloning toolchain ===")
         if not self.toolchain_dir.exists():
             self._run_cmd(f"git clone {TOOLCHAIN_CONFIG['aosp_mirror']}/kernel/prebuilts/build-tools "
                          f"-b {TOOLCHAIN_CONFIG['build_tools_branch']} --depth 1 {self.toolchain_dir}", check=False)
@@ -173,11 +202,28 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self.env["UNPACK_BOOTIMG"] = str(self.mkbootimg_dir / "unpack_bootimg.py")
         if "BOOT_SIGN_KEY_PATH" in os.environ:
             self.env["BOOT_SIGN_KEY_PATH"] = os.environ["BOOT_SIGN_KEY_PATH"]
+        else:
+            self.env["BOOT_SIGN_KEY_PATH"] = str(self._ensure_local_avb_key())
         self.shell.env = self.env
-        logger.info("=== 工具链准备完成 ===")
+        logger.info("=== Toolchain ready ===")
+
+    def _ensure_local_avb_key(self) -> Path:
+        """Reuse a canonical local AVB RSA key for boot.img signing when no
+        BOOT_SIGN_KEY_PATH is provided (e.g. local builds outside CI, where
+        the GitHub Actions secret BOOT_SIGN_KEY doesn't exist). If the
+        canonical key (workspace/boot_sign_key.pem) hasn't been placed there
+        yet, generate a throwaway one as a safety net so the build doesn't
+        fail - but for consistency with GitHub releases, copy the same key
+        you use as the BOOT_SIGN_KEY secret into this exact path once."""
+        key_path = self.workspace / "boot_sign_key.pem"
+        if not key_path.exists():
+            logger.info(f"No BOOT_SIGN_KEY_PATH set and no canonical key found - generating one: {key_path}")
+            logger.info("For consistency with GitHub releases, replace this file with your canonical BOOT_SIGN_KEY.")
+            self._run_cmd(f"openssl genrsa -out {key_path} 2048", check=False)
+        return key_path
 
     def setup_repo_tool(self):
-        logger.info("=== 安装 repo 工具 ===")
+        logger.info("=== Installing repo tool ===")
         repo_dir = self.workspace / "git-repo"
         repo_dir.mkdir(exist_ok=True)
         repo_path = repo_dir / "repo"
@@ -188,7 +234,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self.shell.env = self.env
 
     def init_and_sync_kernel(self):
-        logger.info("=== 初始化和同步内核源代码 ===")
+        logger.info("=== Initializing and syncing kernel source ===")
         self._chdir(self.work_dir)
         formatted_branch = self.config.formatted_branch
 
@@ -206,14 +252,14 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 f.write(content)
 
         self.env["REMOTE_BRANCH"] = remote
-        logger.info("同步内核源代码...")
+        logger.info("Syncing kernel source...")
         self._run_cmd("$REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast", check=False)
 
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
-            raise RuntimeError("repo sync 失败，common 目录不存在")
+            raise RuntimeError("repo sync failed, common directory does not exist")
         self._apply_legacy_fixes(remote)
-        logger.info("=== 内核源代码同步完成 ===")
+        logger.info("=== Kernel source sync complete ===")
 
     def _apply_legacy_fixes(self, remote_branch: str = ""):
         av, kv = self.config.android_version, self.config.kernel_version
@@ -235,7 +281,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
     def add_kernel_supatch(self):
         if not self.config.support_op8e:
             return
-        logger.info("=== 添加 OnePlus 8E 支持补丁 ===")
+        logger.info("=== Adding OnePlus 8E support patch ===")
         drivers_dir = self.work_dir / "common/drivers"
         if not drivers_dir.exists():
             return
@@ -246,7 +292,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 f.write("obj-y += hmbird_patch.o\n")
 
     def add_kernelsu(self):
-        logger.info("=== 添加 KernelSU ===")
+        logger.info("=== Adding KernelSU ===")
         self._chdir(self.work_dir)
         setup_url = (f"https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/{self.config.kernelsu_commit}/kernel/setup.sh"
                     if self.config.kernelsu_commit else KSU_REPO_CONFIG["setup_script"])
@@ -261,7 +307,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
     def add_bbg(self):
         if not self.config.use_bbg:
             return
-        logger.info("=== 添加 Baseband-guard ===")
+        logger.info("=== Adding Baseband-guard ===")
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
             return
@@ -282,7 +328,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 f.write(content)
 
     def apply_susfs_patches(self):
-        logger.info("=== 应用 SUSFS 补丁 ===")
+        logger.info("=== Applying SUSFS patches ===")
         self._chdir(self.work_dir)
         common_dir = self.work_dir / "common"
         susfs_patch = self.susfs_dir / "kernel_patches" / self.config.get_susfs_patch_filename()
@@ -302,7 +348,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._chdir(self.work_dir)
 
     def apply_sukisu_patches(self):
-        logger.info("=== 应用 SukiSU 补丁 ===")
+        logger.info("=== Applying SukiSU patches ===")
         self._chdir(self.work_dir / "common")
         hooks_patch = self.sukisu_patch_dir / "69_hide_stuff.patch"
         if hooks_patch.exists():
@@ -311,7 +357,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
     def apply_zram_patches(self):
         if not self.config.use_zram:
             return
-        logger.info("=== 应用 ZRAM (LZ4KD) 补丁 ===")
+        logger.info("=== Applying ZRAM (LZ4KD) patches ===")
         self._chdir(self.work_dir / "common")
         for src in [
             (self.sukisu_patch_dir / "other/zram/lz4k/include/linux", "include/linux/"),
@@ -334,7 +380,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._run_cmd(f"patch -p1 -F 3 < {p}", check=False)
 
     def apply_task_mmu_fixes(self):
-        logger.info("=== 应用 task_mmu.c 修复 ===")
+        logger.info("=== Applying task_mmu.c fixes ===")
         self._chdir(self.work_dir / "common")
         task_mmu = Path("fs/proc/task_mmu.c")
         if not task_mmu.exists():
@@ -378,11 +424,11 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 f.write(content)
 
     def configure_kernel(self):
-        logger.info("=== 配置内核 ===")
+        logger.info("=== Configuring kernel ===")
         self._chdir(self.work_dir)
         config_file = self.work_dir / "common/arch/arm64/configs/gki_defconfig"
         if not config_file.exists():
-            logger.warning(f"配置文件不存在: {config_file}")
+            logger.warning(f"Config file does not exist: {config_file}")
             return
 
         with open(config_file, "a") as f:
@@ -396,7 +442,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self._configure_zram()
             self._configure_bazel()
 
-        if self.config.set_default_bbr:
+        if self.config.bbr_version == "bbr1":
             with open(config_file, "a") as f:
                 f.write("CONFIG_DEFAULT_BBR=y\n")
 
@@ -444,7 +490,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             f.write("CONFIG_MODULE_SIG_FORCE=n\n")
 
     def configure_kernel_name(self):
-        logger.info("=== 配置内核名称 ===")
+        logger.info("=== Configuring kernel name ===")
         self._chdir(self.work_dir)
         MAX_CUSTOM_LEN = 48
         safe_custom_version = ""
@@ -525,15 +571,15 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                     with open(config_file, "w") as f:
                         f.write(content)
                 else:
-                    logger.warning(f"配置文件不存在，跳过 custom_version 设置: {config_file}")
+                    logger.warning(f"Config file does not exist, skipping custom_version setting: {config_file}")
 
     def show_kernel_config(self):
-        logger.info("=== 显示内核配置列表 ===")
+        logger.info("=== Displaying kernel config list ===")
         self._chdir(self.work_dir)
         config_file = self.work_dir / "common/arch/arm64/configs/gki_defconfig"
         
         if not config_file.exists():
-            logger.warning(f"配置文件不存在: {config_file}")
+            logger.warning(f"Config file does not exist: {config_file}")
             return
         
         with open(config_file, "r") as f:
@@ -550,30 +596,30 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             "CONFIG_ZRAM": "ZRAM",
         }
         
-        logger.info("关键配置状态:")
+        logger.info("Key config status:")
         for prefix, name in key_configs.items():
             found = [c for c in config_lines if c.startswith(prefix)]
             if found:
-                status = "已启用"
+                status = "enabled"
             else:
-                status = "未配置"
+                status = "not configured"
             logger.info(f"  [{status}] {name}")
             if found:
                 for f in sorted(found):
                     logger.info(f"      -> {f}")
         
-        # 显示 ZRAM 相关配置
+        # Show ZRAM related config
         if self.config.use_zram:
             zram_configs = [c for c in config_lines if any(x in c for x in ["ZRAM", "ZSMALLOC", "LZ4", "LZ4KD", "CRYPTO_LZ4", "MODULE_SIG"])]
             if zram_configs:
-                logger.info("ZRAM 相关配置:")
+                logger.info("ZRAM related config:")
                 for zc in sorted(zram_configs):
                     logger.info(f"  -> {zc}")
         
         logger.info("-" * 60)
 
     def build_kernel(self) -> bool:
-        logger.info("=== 开始编译内核 ===")
+        logger.info("=== Starting kernel compilation ===")
         self._chdir(self.work_dir)
 
         build_config = self.work_dir / "common/build.config.gki.aarch64"
@@ -587,25 +633,25 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
         try:
             if (self.work_dir / "build/build.sh").exists():
-                logger.info("使用旧版构建方式...")
+                logger.info("Using legacy build method...")
                 result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
             else:
-                logger.info("使用 Bazel 构建方式...")
+                logger.info("Using Bazel build method...")
                 result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
 
             if result.returncode == 0:
-                logger.info("=== 内核编译成功 ===")
+                logger.info("=== Kernel compilation succeeded ===")
                 return True
-            logger.error(f"内核编译失败: {result.stderr if result.stderr else 'Unknown error'}")
+            logger.error(f"Kernel compilation failed: {result.stderr if result.stderr else 'Unknown error'}")
             return False
         except Exception as e:
-            logger.error(f"编译过程出错: {e}")
+            logger.error(f"Error during compilation: {e}")
             return False
 
     def patch_kpm_image(self):
         if not self.config.use_kpm or self.config.kernel_version == "6.6":
             return
-        logger.info("=== 修补 Image 文件 (KPM) ===")
+        logger.info("=== Patching Image file (KPM) ===")
         self._chdir(self.work_dir)
 
         if self.config.android_version in ["android12", "android13"]:
@@ -621,7 +667,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self._run_cmd("mv oImage Image", check=False)
 
     def prepare_boot_images(self) -> list:
-        logger.info("=== 准备启动镜像 ===")
+        logger.info("=== Preparing boot images ===")
         self._chdir(self.work_dir)
         bootimgs_dir = self.work_dir / "bootimgs"
         bootimgs_dir.mkdir(exist_ok=True)
@@ -681,7 +727,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             artifacts.append(str(dest))
 
     def create_anykernel_zips(self) -> list:
-        logger.info("=== 创建 AnyKernel3 ZIP 文件 ===")
+        logger.info("=== Creating AnyKernel3 ZIP files ===")
         self._chdir(self.work_dir)
         artifacts = []
         ak3_dir = self.anykernel_dir
@@ -704,7 +750,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         import time
         start_time = time.time()
         logger.info("=" * 50)
-        logger.info(f"开始 GKI Kernel 构建 - {self.config.config_name}")
+        logger.info(f"Starting GKI Kernel build - {self.config.config_name}")
         logger.info("=" * 50)
 
         try:
@@ -724,7 +770,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self.show_kernel_config()
 
             if not self.build_kernel():
-                return BuildResult(success=False, config=self.config, message="内核编译失败", build_time=time.time() - start_time)
+                return BuildResult(success=False, config=self.config, message="Kernel compilation failed", build_time=time.time() - start_time)
 
             self.patch_kpm_image()
             artifacts = []
@@ -732,8 +778,8 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             artifacts.extend(self.create_anykernel_zips())
 
             build_time = time.time() - start_time
-            logger.info(f"构建成功! 耗时: {build_time:.2f} 秒, 生成 {len(artifacts)} 个产物")
-            return BuildResult(success=True, config=self.config, message="构建成功", artifacts=artifacts, build_time=build_time)
+            logger.info(f"Build succeeded! Time: {build_time:.2f}s, generated {len(artifacts)} artifact(s)")
+            return BuildResult(success=True, config=self.config, message="Build succeeded", artifacts=artifacts, build_time=build_time)
         except Exception as e:
-            logger.error(f"构建过程出错: {e}")
+            logger.error(f"Error during build: {e}")
             return BuildResult(success=False, config=self.config, message=str(e), build_time=time.time() - start_time)
