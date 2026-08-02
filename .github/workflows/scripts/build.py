@@ -51,6 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kernel-tag", default=None,
                         help="Pin kernel/common to a specific respin tag (e.g. android13-5.15-2025-12_r10) "
                              "instead of the moving branch HEAD")
+    parser.add_argument("--disable-safemode", action="store_true",
+                        help="Permanently disable KernelSU/SukiSU volume-key safe-mode detection "
+                             "(most users rely on Yet Another Bootloop Protector instead)")
     parser.add_argument("--list-configs", action="store_true")
     parser.add_argument("--workspace", "-w", default=os.environ.get("GKI_WORKSPACE", "/tmp/gki-build"))
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -78,6 +81,7 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         custom_version=args.custom_version,
         revision=args.revision,
         kernel_tag=args.kernel_tag,
+        disable_safemode=args.disable_safemode,
     )
 
 
