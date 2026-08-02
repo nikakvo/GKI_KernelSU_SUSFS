@@ -259,7 +259,38 @@ CONFIG_PSI=y
         if not common_dir.exists():
             raise RuntimeError("repo sync failed, common directory does not exist")
         self._apply_legacy_fixes(remote)
+
+        if self.config.kernel_tag:
+            self._checkout_kernel_tag(common_dir)
+
         logger.info("=== Kernel source sync complete ===")
+
+    def _checkout_kernel_tag(self, common_dir: Path):
+        """Pin kernel/common to a specific respin tag (e.g.
+        android13-5.15-2025-12_r10) instead of the moving branch HEAD.
+        repo sync runs with --no-tags, so the tag must be fetched explicitly."""
+        tag = self.config.kernel_tag
+        logger.info(f"=== Pinning kernel source to tag: {tag} ===")
+        self._chdir(common_dir)
+        self._run_cmd(
+            f"git fetch --depth=1 https://android.googlesource.com/kernel/common "
+            f"refs/tags/{tag}:refs/tags/{tag}", check=False)
+        result = self._run_cmd(f"git checkout {tag}", check=False)
+
+        # Write the exact desired release suffix directly into .scmversion.
+        # setlocalversion uses this file's content verbatim instead of
+        # calling `git describe`, giving full, predictable control over the
+        # final kernel release string (e.g. "5.15.194-android13-r10")
+        # regardless of build system (legacy build.sh vs Bazel/Kleaf) - the
+        # separate CONFIG_LOCALVERSION/custom_version mechanisms elsewhere
+        # in this file are gated inconsistently between the two build paths,
+        # so this is the one reliable, universal way to control it.
+        m = re.search(r'_r(\d+)$', tag)
+        respin_suffix = f"-{self.config.android_version}-r{m.group(1)}" if m else ""
+        (common_dir / ".scmversion").write_text(respin_suffix)
+
+        self._chdir(self.work_dir)
+        return result
 
     def _apply_legacy_fixes(self, remote_branch: str = ""):
         av, kv = self.config.android_version, self.config.kernel_version
