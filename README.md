@@ -162,7 +162,7 @@ Each entry looks like:
    - Use a flashing tool such as [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases) to flash the kernel
 
 2. **boot.img** — download the format matching your kernel (uncompressed, gz, lz4)
-   - Flash via `fastboot flash boot <filename>`
+   - Flash via `fastboot flash boot_ab <filename>`
    - Every boot image is AVB-signed with a canonical key kept in sync between local and CI builds (see [AVB Signing](#avb-signing) below).
 
 ---
@@ -198,7 +198,7 @@ Every `boot.img` is signed with `avbtool` using a canonical RSA key so that imag
 - **Locally:** if no key is found, one is auto-generated once at `<workspace>/boot_sign_key.pem` and reused for every subsequent build.
 - **CI:** the same key content should be set as the `BOOT_SIGN_KEY` repository secret.
 
-For most users on an unlocked bootloader this is a formality (AVB verification is typically bypassed), but it matters if you ever lock the bootloader against a custom AVB key.
+For most users on an unlocked bootloader this is a formality (AVB verification is typically bypassed).
 
 ---
 
@@ -213,7 +213,7 @@ For most users on an unlocked bootloader this is a formality (AVB verification i
 
 2. Run the flash command
 ```bash
-fastboot flash boot <full_boot.img_filename>
+fastboot flash boot_ab <full_boot.img_filename>
 ```
 
 ---
