@@ -1,16 +1,16 @@
 #!/bin/bash
 set -e
 
-# Скриптът намира сам себе си - работи независимо дали папката се казва
-# GKI_KernelSU_SUSFS, GKI_KernelSU_SUSFS-main, или каквото и да е друго
-# (git clone vs "Download ZIP" от GitHub дават различни имена на папката).
+# The script locates itself - works regardless of what the containing folder
+# is named (GKI_KernelSU_SUSFS, GKI_KernelSU_SUSFS-main, or anything else;
+# git clone vs GitHub's "Download ZIP" produce different folder names).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$SCRIPT_DIR/.github/workflows/scripts"
 MATRIX_FILE="$REPO_DIR/../config/matrix.json"
 WORKSPACE="$HOME/gki-workspace"
 LOGFILE="$HOME/build-$(date +%Y%m%d-%H%M%S).log"
 
-# ---- Стойности по подразбиране ----
+# ---- Default values ----
 ANDROID_VERSION="android13"
 KERNEL_VERSION="5.15"
 SUB_LEVEL="194"
@@ -18,11 +18,11 @@ OS_PATCH="2025-12"
 KERNEL_TAG="android13-5.15-2025-12_r10"
 
 # ============================================================
-#  Проверка / автоматична инсталация на зависимости
+#  Dependency check / auto-install
 # ============================================================
 check_dependencies() {
-    # Системни apt пакети - базирани на GitHub Actions workflow-ите
-    # (kernel-build.yml / build-kernels.yml) + стандартни host build tools
+    # System apt packages - based on the GitHub Actions workflows
+    # (kernel-build.yml / build-kernels.yml) + standard host build tools
     local apt_packages=(
         git curl wget zip unzip xz-utils openssl pixz
         ccache python3 python3-pip
@@ -37,7 +37,7 @@ check_dependencies() {
 
     if [ ${#missing_apt[@]} -gt 0 ]; then
         echo "========================================"
-        echo "  Липсващи зависимости, инсталирам..."
+        echo "  Missing dependencies, installing..."
         echo "========================================"
         echo "  ${missing_apt[*]}"
         echo ""
@@ -46,18 +46,18 @@ check_dependencies() {
         echo ""
     fi
 
-    # Python модул PyYAML (ползва се от matrix_generator.py и др.)
+    # Python PyYAML module (used by matrix_generator.py and others)
     if ! python3 -c "import yaml" &>/dev/null; then
-        echo "Липсва Python модул PyYAML, инсталирам..."
+        echo "Missing Python module PyYAML, installing..."
         pip3 install --user PyYAML 2>/dev/null || pip3 install PyYAML
         echo ""
     fi
 
     if [ ${#missing_apt[@]} -eq 0 ]; then
-        echo "Всички зависимости са налични."
+        echo "All dependencies are present."
         echo ""
     else
-        echo "Зависимостите са инсталирани."
+        echo "Dependencies installed."
         echo ""
     fi
 }
@@ -65,30 +65,30 @@ check_dependencies() {
 check_dependencies
 
 # ============================================================
-#  Build меню
+#  Build menu
 # ============================================================
 echo "========================================"
-echo "  GKI KernelSU SUSFS - Build меню"
+echo "  GKI KernelSU SUSFS - Build Menu"
 echo "========================================"
 echo "1) Default (android13 / 5.15 / 194 / 2025-12)"
-echo "2) Custom (сам избираш версии)"
-echo "3) Всички версии от matrix.json"
+echo "2) Custom (choose your own versions)"
+echo "3) All versions from matrix.json"
 echo "========================================"
-read -rp "Избери опция [1-3]: " BUILD_OPTION
+read -rp "Choose an option [1-3]: " BUILD_OPTION
 
 cd "$REPO_DIR"
 
 if [ "$BUILD_OPTION" == "3" ]; then
     if [ ! -f "$MATRIX_FILE" ]; then
-        echo "Не намирам matrix.json на: $MATRIX_FILE"
+        echo "Could not find matrix.json at: $MATRIX_FILE"
         exit 1
     fi
 
     echo ""
-    echo "Чета конфигурации от: $MATRIX_FILE"
+    echo "Reading configurations from: $MATRIX_FILE"
     echo ""
 
-    # android|kernel|sub_level|os_patch|revision, по 1 ред за всяка конфигурация
+    # android|kernel|sub_level|os_patch|revision, one line per configuration
     mapfile -t CONFIGS < <(python3 -c "
 import json
 with open('$MATRIX_FILE') as f:
@@ -103,18 +103,18 @@ for key, entries in data.items():
 
     TOTAL=${#CONFIGS[@]}
     if [ "$TOTAL" -eq 0 ]; then
-        echo "matrix.json е празен, няма какво да билдвам."
+        echo "matrix.json is empty, nothing to build."
         exit 1
     fi
 
-    echo "Намерени $TOTAL конфигурации за билдване:"
+    echo "Found $TOTAL configuration(s) to build:"
     for line in "${CONFIGS[@]}"; do
         IFS='|' read -r a k s p r <<< "$line"
         echo "  - $a-$k-$s ($p)"
     done
     echo ""
-    read -rp "Продължавам ли с всички $TOTAL билда? (y/n) " confirm
-    [ "$confirm" == "y" ] || { echo "Прекратено."; exit 0; }
+    read -rp "Continue with all $TOTAL build(s)? (y/n) " confirm
+    [ "$confirm" == "y" ] || { echo "Cancelled."; exit 0; }
 
     SUCCESS=0
     FAILED=0
@@ -139,6 +139,7 @@ for key, entries in data.items():
             --os-patch "$p" \
             --bbr-version bbr1 \
             --zram \
+            --disable-safemode \
             --workspace "$WORKSPACE" \
             "${EXTRA_ARGS[@]}" \
             2>&1 | tee -a "$LOGFILE"; then
@@ -151,43 +152,43 @@ for key, entries in data.items():
 
     echo ""
     echo "========================================"
-    echo "  Обобщение"
+    echo "  Summary"
     echo "========================================"
-    echo "Общо:    $TOTAL"
-    echo "Успешни: $SUCCESS"
-    echo "Провалени: $FAILED"
+    echo "Total:   $TOTAL"
+    echo "Success: $SUCCESS"
+    echo "Failed:  $FAILED"
     if [ "$FAILED" -gt 0 ]; then
-        echo "Провалени конфигурации:"
+        echo "Failed configurations:"
         for f in "${FAILED_LIST[@]}"; do
             echo "  - $f"
         done
     fi
-    echo "Build log записан в: $LOGFILE"
+    echo "Build log saved to: $LOGFILE"
     exit 0
 fi
 
 if [ "$BUILD_OPTION" == "2" ]; then
     echo ""
-    echo "Провери наличните версии тук:"
+    echo "Check available versions here:"
     echo "https://zzh20188.github.io/GKI_KernelSU_SUSFS/index.html"
     echo ""
 
-    read -rp "Android Version (напр. android13): " ANDROID_VERSION
-    read -rp "Kernel Version (напр. 5.15): " KERNEL_VERSION
-    read -rp "Sublevel (напр. 178): " SUB_LEVEL
-    read -rp "Security Patch Level (напр. 2025-03): " OS_PATCH
+    read -rp "Android Version (e.g. android13): " ANDROID_VERSION
+    read -rp "Kernel Version (e.g. 5.15): " KERNEL_VERSION
+    read -rp "Sublevel (e.g. 178): " SUB_LEVEL
+    read -rp "Security Patch Level (e.g. 2025-03): " OS_PATCH
     echo ""
-    echo "Провери точния respin таг тук (по избор, напр. android13-5.15-2025-12_r10):"
+    echo "Check the exact respin tag here (optional, e.g. android13-5.15-2025-12_r10):"
     echo "https://android.googlesource.com/kernel/common/+refs"
-    read -rp "Kernel Tag (Enter за пропускане - взима последния HEAD на branch-а): " KERNEL_TAG
+    read -rp "Kernel Tag (Enter to skip - uses the branch's latest HEAD): " KERNEL_TAG
 
 elif [ "$BUILD_OPTION" != "1" ]; then
-    echo "Невалиден избор. Излизам."
+    echo "Invalid choice. Exiting."
     exit 1
 fi
 
 echo ""
-echo "Ще билдвам с:"
+echo "Building with:"
 echo "  Android:  $ANDROID_VERSION"
 echo "  Kernel:   $KERNEL_VERSION"
 echo "  Sublevel: $SUB_LEVEL"
@@ -205,10 +206,11 @@ python3 build.py \
     --os-patch "$OS_PATCH" \
     --bbr-version bbr1 \
     --zram \
+    --disable-safemode \
     --workspace "$WORKSPACE" \
     "${EXTRA_ARGS[@]}" \
     2>&1 | tee "$LOGFILE"
 
 echo ""
-echo "Build log записан в: $LOGFILE"
-echo "Артефакти в: $WORKSPACE/${ANDROID_VERSION}-${KERNEL_VERSION}-${SUB_LEVEL}/"
+echo "Build log saved to: $LOGFILE"
+echo "Artifacts in: $WORKSPACE/${ANDROID_VERSION}-${KERNEL_VERSION}-${SUB_LEVEL}/"
