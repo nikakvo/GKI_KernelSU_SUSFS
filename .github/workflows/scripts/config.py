@@ -113,6 +113,7 @@ class BuildConfig:
     make_release: bool = True
     custom_version: Optional[str] = None
     revision: Optional[str] = None
+    kernel_tag: Optional[str] = None
     build_id: Optional[str] = None
 
     def __post_init__(self):
@@ -189,6 +190,7 @@ class BuildConfig:
             "make_release": self.make_release,
             "custom_version": self.custom_version,
             "revision": self.revision,
+            "kernel_tag": self.kernel_tag,
             "build_id": self.build_id,
         }
 
