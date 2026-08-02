@@ -649,6 +649,45 @@ CONFIG_PSI=y
         
         logger.info("-" * 60)
 
+    def _canonicalize_defconfig(self):
+        """Bazel/Kleaf's kernel_config rule strictly requires
+        gki_defconfig to be in canonical `make savedefconfig` form
+        (minimal, sorted, no lines matching Kconfig defaults) - it fails
+        the build with 'savedefconfig does not match ...' otherwise.
+        Our custom CONFIG_ additions (KSU, SUSFS, ZRAM, BBR, etc.) are
+        appended as plain text, so after every change we regenerate the
+        canonical form ourselves using the kernel's own host Kconfig
+        tooling (no cross-compiler needed for this step) and write it
+        back, so Bazel's check passes."""
+        import tempfile
+        logger.info("=== Canonicalizing gki_defconfig for Bazel (savedefconfig) ===")
+        common_dir = self.work_dir / "common"
+        defconfig_path = common_dir / "arch/arm64/configs/gki_defconfig"
+        if not defconfig_path.exists():
+            logger.warning(f"gki_defconfig not found at {defconfig_path}, skipping canonicalization")
+            return
+
+        with tempfile.TemporaryDirectory(prefix="savedefconfig_") as tmpdir:
+            self._chdir(common_dir)
+            expand = self._run_cmd(f"make ARCH=arm64 O={tmpdir} gki_defconfig", check=False)
+            if expand.returncode != 0:
+                logger.warning("Failed to expand gki_defconfig for canonicalization, leaving as-is")
+                self._chdir(self.work_dir)
+                return
+            save = self._run_cmd(f"make ARCH=arm64 O={tmpdir} savedefconfig", check=False)
+            self._chdir(self.work_dir)
+            if save.returncode != 0:
+                logger.warning("savedefconfig failed, leaving gki_defconfig as-is")
+                return
+
+            canonical = Path(tmpdir) / "defconfig"
+            if canonical.exists():
+                canonical_content = canonical.read_text()
+                defconfig_path.write_text(canonical_content)
+                logger.info("gki_defconfig canonicalized successfully")
+            else:
+                logger.warning("savedefconfig did not produce an output file, leaving gki_defconfig as-is")
+
     def build_kernel(self) -> bool:
         logger.info("=== Starting kernel compilation ===")
         self._chdir(self.work_dir)
@@ -668,7 +707,12 @@ CONFIG_PSI=y
                 result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
             else:
                 logger.info("Using Bazel build method...")
-                result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
+                self._canonicalize_defconfig()
+                bazel_cache = Path.home() / ".cache" / "bazel"
+                bazel_cache.mkdir(parents=True, exist_ok=True)
+                result = self._run_cmd(
+                    f"tools/bazel build --disk_cache={bazel_cache} --config=fast --lto=thin //common:kernel_aarch64_dist",
+                    check=False)
 
             if result.returncode == 0:
                 logger.info("=== Kernel compilation succeeded ===")
