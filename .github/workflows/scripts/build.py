@@ -69,6 +69,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-release", action="store_true")
     parser.add_argument("--custom-version", dest="custom_version", default=None)
     parser.add_argument("--revision")
+    parser.add_argument("--kernel-tag", default=None,
+                        help="Pin kernel/common to a specific respin tag (e.g. android13-5.15-2025-12_r10) "
+                             "instead of the moving branch HEAD")
     parser.add_argument("--matrix", "-m")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--list-configs", action="store_true")
@@ -98,6 +101,7 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         make_release=not args.no_release,
         custom_version=args.custom_version,
         revision=args.revision,
+        kernel_tag=args.kernel_tag,
     )
 
 
@@ -163,6 +167,7 @@ def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str) -> l
                 make_release=not args.no_release,
                 custom_version=args.custom_version,
                 revision=cfg_data.get("revision"),
+                kernel_tag=cfg_data.get("kernel_tag", args.kernel_tag),
             )
 
             logger.info(f"\n{'=' * 60}\nBuilding config: {config.config_name}\n{'=' * 60}")
