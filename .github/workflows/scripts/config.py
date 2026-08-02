@@ -42,6 +42,8 @@ class AndroidVersion(Enum):
     ANDROID13 = "android13"
     ANDROID14 = "android14"
     ANDROID15 = "android15"
+    ANDROID16 = "android16"
+    ANDROID17 = "android17"
 
 
 class KernelVersion(Enum):
@@ -49,6 +51,8 @@ class KernelVersion(Enum):
     KERNEL_5_15 = "5.15"
     KERNEL_6_1 = "6.1"
     KERNEL_6_6 = "6.6"
+    KERNEL_6_12 = "6.12"
+    KERNEL_6_18 = "6.18"
 
 
 class KSUVersion(Enum):
@@ -61,6 +65,8 @@ ANDROID_KERNEL_MAP = {
     AndroidVersion.ANDROID13: [KernelVersion.KERNEL_5_10, KernelVersion.KERNEL_5_15],
     AndroidVersion.ANDROID14: [KernelVersion.KERNEL_5_15, KernelVersion.KERNEL_6_1],
     AndroidVersion.ANDROID15: [KernelVersion.KERNEL_6_6],
+    AndroidVersion.ANDROID16: [KernelVersion.KERNEL_6_12],
+    AndroidVersion.ANDROID17: [KernelVersion.KERNEL_6_18],
 }
 
 # Repository configuration
