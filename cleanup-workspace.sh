@@ -1,26 +1,26 @@
 #!/bin/bash
-# Пуска се СЛЕД като си copy-нал zip/boot.img файловете, които ти трябват.
-# Трие versioned build директорията (тежка, специфична за конкретния sub_level),
-# запазва споделените репота/toolchain-а за по-бързи бъдещи build-ове.
+# Run this AFTER you've copied out the zip/boot.img files you need.
+# Deletes the versioned build directory (heavy, specific to that sub_level),
+# keeps the shared repos/toolchain for faster future builds.
 
 set -e
 WORKSPACE="$HOME/gki-workspace"
 
-echo "=== Преди чистене ==="
+echo "=== Before cleanup ==="
 du -sh "$WORKSPACE"/* 2>/dev/null
 
 echo ""
-echo "Ще изтрия версионните build директории (android*-*-*), запазвам:"
+echo "About to delete versioned build directories (android*-*-*), keeping:"
 echo "  AnyKernel3, SukiSU_patch, kernel_patches, susfs4ksu, toolchain, mkbootimg, git-repo"
-read -p "Продължавам ли? (y/n) " confirm
+read -p "Continue? (y/n) " confirm
 
 if [ "$confirm" = "y" ]; then
     find "$WORKSPACE" -maxdepth 1 -type d -regextype posix-extended -regex '.*/android[0-9]+-[0-9.]+-[0-9X]+' -exec rm -rf {} \;
-    echo "Готово."
+    echo "Done."
 else
-    echo "Прекратено, нищо не е изтрито."
+    echo "Cancelled, nothing was deleted."
 fi
 
 echo ""
-echo "=== След чистене ==="
+echo "=== After cleanup ==="
 du -sh "$WORKSPACE"/* 2>/dev/null
