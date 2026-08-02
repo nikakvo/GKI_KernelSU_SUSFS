@@ -19,36 +19,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_BUILD_MATRIX = {
-    "android12-5.10": [
-        {"sub_level": "136", "os_patch_level": "2022-11", "revision": "r15"},
-        {"sub_level": "198", "os_patch_level": "2024-01", "revision": "r17"},
-        {"sub_level": "209", "os_patch_level": "2024-05", "revision": "r13"},
-        {"sub_level": "236", "os_patch_level": "2025-05", "revision": "r1"},
-        {"sub_level": "X", "os_patch_level": "lts", "revision": "r1"},
-    ],
-    "android13-5.15": [
-        {"sub_level": "74", "os_patch_level": "2023-01"},
-        {"sub_level": "123", "os_patch_level": "2023-11"},
-        {"sub_level": "148", "os_patch_level": "2024-05"},
-        {"sub_level": "170", "os_patch_level": "2025-01"},
-        {"sub_level": "178", "os_patch_level": "2025-03"},
-        {"sub_level": "180", "os_patch_level": "2025-05"},
-        {"sub_level": "189", "os_patch_level": "2025-09"},
-    ],
-    "android14-6.1": [
-        {"sub_level": "78", "os_patch_level": "2024-06"},
-        {"sub_level": "90", "os_patch_level": "2024-08"},
-        {"sub_level": "99", "os_patch_level": "2024-10"},
-        {"sub_level": "124", "os_patch_level": "2025-02"},
-        {"sub_level": "145", "os_patch_level": "2025-09"},
-    ],
-    "android15-6.6": [
-        {"sub_level": "50", "os_patch_level": "2024-10"},
-        {"sub_level": "66", "os_patch_level": "2025-02"},
-        {"sub_level": "102", "os_patch_level": "2025-10"},
-    ],
-}
+# NOTE: there used to be a DEFAULT_BUILD_MATRIX dict here, plus --matrix/
+# --all/--list-matrix flags that built from it. It was a second, unsynced
+# source of truth, separate from matrix.json (which update_matrix.py keeps
+# current from Google's own tags) and never actually used by build-kernel.sh,
+# kernel-build.yml, or build-kernels.yml - all of them always pass explicit
+# --android/--kernel/--sub-level/--os-patch/--kernel-tag. Removed to avoid
+# it silently going stale again (e.g. missing android16/17, old respins).
+# matrix.json is now the one and only source of truth for "which versions
+# exist to build" - see update_matrix.py.
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,10 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kernel-tag", default=None,
                         help="Pin kernel/common to a specific respin tag (e.g. android13-5.15-2025-12_r10) "
                              "instead of the moving branch HEAD")
-    parser.add_argument("--matrix", "-m")
-    parser.add_argument("--all", action="store_true")
     parser.add_argument("--list-configs", action="store_true")
-    parser.add_argument("--list-matrix", action="store_true")
     parser.add_argument("--workspace", "-w", default=os.environ.get("GKI_WORKSPACE", "/tmp/gki-build"))
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--output-json")
@@ -107,29 +83,18 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
 
 def list_configs():
     print("\n" + "=" * 60)
-    print("Supported Android/Kernel version combinations")
+    print("Supported Android/Kernel combinations")
     print("=" * 60)
     for android, kernels in ANDROID_KERNEL_MAP.items():
-        print(f"\n{android.value}:")
-        for kernel in kernels:
-            configs = DEFAULT_BUILD_MATRIX.get(f"{android.value}-{kernel.value}", [])
-            print(f"  - {kernel.value}: {', '.join(c['sub_level'] for c in configs) or 'N/A'}")
+        print(f"  {android.value}: {', '.join(k.value for k in kernels)}")
+    print("\nFor the actual sub_level/os_patch_level/kernel_tag matrix, see")
+    print("matrix.json (kept current by update_matrix.py) - this list only")
+    print("shows which android/kernel combinations config.py accepts.")
     print("\n" + "=" * 60)
     print("KernelSU version options")
     print("=" * 60)
     for v in KSUVersion:
         print(f"  - {v.value}")
-
-
-def list_matrix():
-    print("\n" + "=" * 60)
-    print("Predefined build matrix")
-    print("=" * 60)
-    for combo, configs in sorted(DEFAULT_BUILD_MATRIX.items()):
-        print(f"\n{combo}:")
-        for cfg in configs:
-            rev = f" (rev: {cfg.get('revision', 'N/A')})" if cfg.get('revision') else ""
-            print(f"  - {cfg['sub_level']:>4} | {cfg['os_patch_level']}{rev}")
 
 
 def build_single(config: BuildConfig, workspace: str, dry_run: bool = False) -> BuildResult:
@@ -139,58 +104,6 @@ def build_single(config: BuildConfig, workspace: str, dry_run: bool = False) -> 
 
     builder = KernelBuilder(config, workspace)
     return builder.build()
-
-
-def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str) -> list:
-    logger.info(f"\n{'=' * 60}\nStarting build matrix: {matrix_key}\n{'=' * 60}\n")
-
-    configs_data = DEFAULT_BUILD_MATRIX.get(matrix_key, [])
-    if not configs_data:
-        logger.error(f"Unknown matrix: {matrix_key}")
-        return []
-
-    results = []
-    for cfg_data in configs_data:
-        try:
-            config = BuildConfig(
-                android_version=matrix_key.split("-")[0],
-                kernel_version=matrix_key.split("-")[1],
-                sub_level=cfg_data["sub_level"],
-                os_patch_level=cfg_data["os_patch_level"],
-                kernelsu_version=args.ksu_version,
-                kernelsu_commit=args.ksu_commit,
-                use_zram=args.zram,
-                use_kpm=not args.no_kpm,
-                use_bbg=args.bbg,
-                support_op8e=args.op8e,
-                bbr_version=args.bbr_version,
-                make_release=not args.no_release,
-                custom_version=args.custom_version,
-                revision=cfg_data.get("revision"),
-                kernel_tag=cfg_data.get("kernel_tag", args.kernel_tag),
-            )
-
-            logger.info(f"\n{'=' * 60}\nBuilding config: {config.config_name}\n{'=' * 60}")
-            result = build_single(config, workspace, args.dry_run)
-            results.append(result)
-
-            if result.success:
-                logger.info(f"✓ {config.config_name} build succeeded")
-            else:
-                logger.error(f"✗ {config.config_name} build failed: {result.message}")
-        except Exception as e:
-            logger.error(f"Error in config {cfg_data}: {e}")
-            continue
-
-    return results
-
-
-def build_all(args: argparse.Namespace, workspace: str) -> list:
-    all_results = []
-    for matrix_key in sorted(DEFAULT_BUILD_MATRIX.keys()):
-        results = build_matrix(matrix_key, args, workspace)
-        all_results.extend(results)
-    return all_results
 
 
 def print_summary(results: list, output_json: str = None):
@@ -240,12 +153,8 @@ def main():
         list_configs()
         return 0
 
-    if args.list_matrix:
-        list_matrix()
-        return 0
-
-    if not args.all and not args.matrix and not args.android:
-        logger.error("Please specify --all, --matrix, or --android")
+    if not args.android:
+        logger.error("Please specify --android (with --kernel, --sub-level, --os-patch)")
         return 1
 
     workspace = args.workspace
@@ -254,18 +163,13 @@ def main():
 
     results = []
 
-    if args.all:
-        results = build_all(args, workspace)
-    elif args.matrix:
-        results = build_matrix(args.matrix, args, workspace)
-    else:
-        try:
-            config = create_build_config(args)
-            result = build_single(config, workspace, args.dry_run)
-            results.append(result)
-        except Exception as e:
-            logger.error(f"Config error: {e}")
-            return 1
+    try:
+        config = create_build_config(args)
+        result = build_single(config, workspace, args.dry_run)
+        results.append(result)
+    except Exception as e:
+        logger.error(f"Config error: {e}")
+        return 1
 
     if results:
         print_summary(results, args.output_json)
