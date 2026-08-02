@@ -1,7 +1,11 @@
 #!/bin/bash
 set -e
 
-REPO_DIR="$HOME/GKI_KernelSU_SUSFS-main/.github/workflows/scripts"
+# Скриптът намира сам себе си - работи независимо дали папката се казва
+# GKI_KernelSU_SUSFS, GKI_KernelSU_SUSFS-main, или каквото и да е друго
+# (git clone vs "Download ZIP" от GitHub дават различни имена на папката).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$SCRIPT_DIR/.github/workflows/scripts"
 MATRIX_FILE="$REPO_DIR/../config/matrix.json"
 WORKSPACE="$HOME/gki-workspace"
 LOGFILE="$HOME/build-$(date +%Y%m%d-%H%M%S).log"
@@ -135,7 +139,6 @@ for key, entries in data.items():
             --os-patch "$p" \
             --bbr-version bbr1 \
             --zram \
-            --disable-safemode \
             --workspace "$WORKSPACE" \
             "${EXTRA_ARGS[@]}" \
             2>&1 | tee -a "$LOGFILE"; then
@@ -202,7 +205,6 @@ python3 build.py \
     --os-patch "$OS_PATCH" \
     --bbr-version bbr1 \
     --zram \
-    --disable-safemode \
     --workspace "$WORKSPACE" \
     "${EXTRA_ARGS[@]}" \
     2>&1 | tee "$LOGFILE"
