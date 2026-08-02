@@ -120,6 +120,7 @@ class BuildConfig:
     custom_version: Optional[str] = None
     revision: Optional[str] = None
     kernel_tag: Optional[str] = None
+    disable_safemode: bool = False
     build_id: Optional[str] = None
 
     def __post_init__(self):
@@ -197,6 +198,7 @@ class BuildConfig:
             "custom_version": self.custom_version,
             "revision": self.revision,
             "kernel_tag": self.kernel_tag,
+            "disable_safemode": self.disable_safemode,
             "build_id": self.build_id,
         }
 
