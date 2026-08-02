@@ -161,7 +161,7 @@ Each entry looks like:
 1. **AnyKernel3.zip** — ready to flash!
    - Use a flashing tool such as [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases) to flash the kernel
 
-2. **boot.img** — download the format matching your kernel (uncompressed, gz, lz4)
+2. **boot.img** — download the format matching your kernel
    - Flash via `fastboot flash boot_ab <filename>`
    - Every boot image is AVB-signed with a canonical key kept in sync between local and CI builds (see [AVB Signing](#avb-signing) below).
 
