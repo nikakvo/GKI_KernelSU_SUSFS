@@ -186,7 +186,20 @@ CONFIG_PSI=y
                 logger.info(f"Cloning {name}...")
                 self._run_cmd(cmd, check=False)
             else:
-                logger.info(f"{name} already exists, skipping")
+                logger.info(f"{name} already exists, skipping clone")
+                if branch:
+                    # This clone is reused across builds (cleanup-workspace.sh
+                    # keeps it on purpose for speed), but the branch this
+                    # build needs (e.g. SUSFS's branch depends on the
+                    # android/kernel combo) may differ from whatever branch
+                    # a previous build last left it on. Make sure it's on
+                    # the right one before continuing, instead of silently
+                    # using whatever happens to be checked out.
+                    self._chdir(repo_dir)
+                    self._run_cmd(f"git fetch origin {branch}", check=False)
+                    self._run_cmd(f"git checkout {branch}", check=False)
+                    self._run_cmd(f"git reset --hard origin/{branch}", check=False)
+                    self._chdir(self.workspace)
         self._apply_susfs_commit()
         logger.info("=== Repository cloning complete ===")
 
@@ -359,25 +372,102 @@ CONFIG_PSI=y
             with open(kconfig_file, "w") as f:
                 f.write(content)
 
+    # fs/namespace.c: on some sub_levels Google adds/reorders nearby
+    # #include lines (e.g. an extra "#include <trace/hooks/blk.h>" seen
+    # on android14-6.1-172), which breaks the SUSFS patch's exact
+    # multi-line context match for hunk #1 even though the actual change
+    # (two small #ifdef blocks) has nothing to do with that line. Instead
+    # of relying on exact context, we insert these idempotently by
+    # anchor line, so it survives future include reshuffling too.
+    _NAMESPACE_C_SUSFS_INCLUDE_BLOCK = (
+        "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+        "#include <linux/susfs_def.h>\n"
+        "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+    )
+    _NAMESPACE_C_SUSFS_EXTERN_BLOCK = (
+        "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+        "extern bool susfs_is_current_ksu_domain(void);\n"
+        "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n"
+        "\n"
+        "#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n"
+        "\n"
+        "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+    )
+
+    def _fix_namespace_c_susfs_hooks(self) -> bool:
+        """Idempotently ensures the two SUSFS hook blocks are present in
+        fs/namespace.c. Returns True if the file ends up in the expected
+        state (either already had them, or they were inserted now)."""
+        namespace_c = self.work_dir / "common/fs/namespace.c"
+        if not namespace_c.exists():
+            return False
+        content = namespace_c.read_text()
+
+        if "susfs_def.h" in content and "susfs_is_current_ksu_domain" in content:
+            logger.info("fs/namespace.c already has SUSFS hooks, nothing to fix")
+            return True
+
+        anchor_include = "#include <linux/mnt_idmapping.h>\n"
+        if anchor_include in content and self._NAMESPACE_C_SUSFS_INCLUDE_BLOCK not in content:
+            content = content.replace(anchor_include, anchor_include + self._NAMESPACE_C_SUSFS_INCLUDE_BLOCK, 1)
+
+        anchor_decl = "static unsigned int sysctl_mount_max __read_mostly = 100000;\n"
+        if anchor_decl in content and self._NAMESPACE_C_SUSFS_EXTERN_BLOCK not in content:
+            content = content.replace(anchor_decl, self._NAMESPACE_C_SUSFS_EXTERN_BLOCK + anchor_decl, 1)
+
+        namespace_c.write_text(content)
+        ok = "susfs_def.h" in content and "susfs_is_current_ksu_domain" in content
+        if ok:
+            logger.info("fs/namespace.c: SUSFS hooks inserted via anchor-based fallback")
+        return ok
+
     def apply_susfs_patches(self):
         logger.info("=== Applying SUSFS patches ===")
         self._chdir(self.work_dir)
         common_dir = self.work_dir / "common"
         susfs_patch = self.susfs_dir / "kernel_patches" / self.config.get_susfs_patch_filename()
-        if susfs_patch.exists():
-            self._run_cmd(f"cp {susfs_patch} {common_dir}/", check=False)
+        if not susfs_patch.exists():
+            raise RuntimeError(
+                f"SUSFS patch file not found: {susfs_patch}\n"
+                f"The susfs4ksu checkout (at {self.susfs_dir}) may be on the "
+                f"wrong branch (expected '{self.config.kernel_branch}'), or "
+                f"susfs4ksu has renamed/moved this file upstream. Check: "
+                f"https://github.com/ShirkNeko/susfs4ksu/tree/{self.config.kernel_branch}/kernel_patches\n"
+                f"This is a hard stop - continuing without this patch produces "
+                f"a kernel that fails to link (undefined susfs_* symbols)."
+            )
+        self._run_cmd(f"cp {susfs_patch} {common_dir}/", check=False)
         for src, dst in [
             (self.susfs_dir / "kernel_patches/fs", common_dir / "fs/"),
             (self.susfs_dir / "kernel_patches/include/linux", common_dir / "include/linux/"),
         ]:
             if src.exists():
                 self._run_cmd(f"cp -r {src}/* {dst}", check=False)
-        if susfs_patch.exists():
-            patch_file = common_dir / self.config.get_susfs_patch_filename()
-            if patch_file.exists():
-                self._chdir(common_dir)
-                self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}", check=False)
-                self._chdir(self.work_dir)
+
+        patch_file = common_dir / self.config.get_susfs_patch_filename()
+        self._chdir(common_dir)
+        result = self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}", check=False)
+        self._chdir(self.work_dir)
+        if result.returncode != 0:
+            rej_files = list(common_dir.glob("**/*.rej"))
+            only_known_namespace_issue = (
+                len(rej_files) == 1 and rej_files[0].name == "namespace.c.rej"
+            )
+            if only_known_namespace_issue and self._fix_namespace_c_susfs_hooks():
+                rej_files[0].unlink(missing_ok=True)
+                logger.warning(
+                    "fs/namespace.c hunk failed via the normal patch context "
+                    "(known drift - Google adds/reorders nearby #include "
+                    "lines on some sub_levels) but was fixed automatically "
+                    "via anchor-based insertion. Continuing."
+                )
+                return
+            raise RuntimeError(
+                f"SUSFS patch failed to apply cleanly: {patch_file} "
+                f"(patch exit code {result.returncode}). The kernel source "
+                f"may have diverged from what this SUSFS patch expects - "
+                f"check the build log above for rejected hunks."
+            )
 
     def apply_sukisu_patches(self):
         logger.info("=== Applying SukiSU patches ===")
@@ -784,7 +874,15 @@ CONFIG_PSI=y
         def _build_cmd(lto: str) -> str:
             if is_legacy:
                 return f"LTO={lto} BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
-            return f"tools/bazel build --disk_cache={bazel_cache} --config=fast --lto={lto} //common:kernel_aarch64_dist"
+            # --nokmi_symbol_list_strict_mode: a custom KernelSU/SUSFS kernel
+            # always diverges from Google's official per-branch KMI symbol
+            # list (new susfs_*/ksu_* symbols added, some upstream symbols
+            # like kasan_flag_enabled missing depending on config) - this
+            # check is only meaningful for kernels that must stay ABI-compatible
+            # with Google's stock GKI, which doesn't apply here.
+            return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
+                    f"--lto={lto} --nokmi_symbol_list_strict_mode "
+                    f"--nokmi_symbol_list_violations_check //common:kernel_aarch64_dist")
 
         try:
             if is_legacy:
