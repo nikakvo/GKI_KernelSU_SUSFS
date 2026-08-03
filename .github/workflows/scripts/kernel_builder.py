@@ -409,13 +409,19 @@ CONFIG_PSI=y
             logger.info("fs/namespace.c: restored 'trace/hooks/blk.h' include after SUSFS patch")
 
     # fs/namei.c: the SUSFS patch adds set_nameidata(nd, old_dfd,
-    # fake_filename, NULL) - 4 args - unconditionally, but 5.10 kernels
-    # (android12-5.10, android13-5.10) only ever had the 3-param
-    # set_nameidata(p, dfd, name) - there's no 4th/root param on this
-    # branch. Confirmed against WildKernels/GKI_KernelSU_SUSFS's own
-    # build pipeline, which applies the identical fix. No-op on any
-    # kernel version where this exact 4-arg call isn't present.
+    # fake_filename, NULL) - 4 args - unconditionally, but only 5.10
+    # kernels (android12-5.10, android13-5.10) still have the 3-param
+    # set_nameidata(p, dfd, name) - there's no 4th/root param on that
+    # branch. On android13-5.15+ set_nameidata legitimately HAS a 4th
+    # param, so the same call text is correct there and must NOT be
+    # touched - this must stay gated to exactly the 5.10 branches
+    # (confirmed against WildKernels/GKI_KernelSU_SUSFS's own build
+    # pipeline, which gates it the same way) rather than a blind
+    # string-match across all kernel versions.
     def _fix_namei_c_set_nameidata_arity(self):
+        if not (self.config.kernel_version == "5.10"
+                and self.config.android_version in ("android12", "android13")):
+            return
         namei_c = self.work_dir / "common/fs/namei.c"
         if not namei_c.exists():
             return
