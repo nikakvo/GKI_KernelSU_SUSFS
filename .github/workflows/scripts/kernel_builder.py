@@ -725,13 +725,15 @@ CONFIG_PSI=y
             "CONFIG_KPM": "KPM",
             "CONFIG_KSU_SUSFS": "SUSFS",
             "CONFIG_BBG": "Baseband-guard",
-            "CONFIG_BBR": "BBR",
+            "BBR": "BBR",  # substring match: real symbols are CONFIG_TCP_CONG_BBR
+                            # and CONFIG_DEFAULT_BBR - neither actually starts
+                            # with "CONFIG_BBR", so this can't use a prefix match
             "CONFIG_ZRAM": "ZRAM",
         }
         
         logger.info("Key config status:")
         for prefix, name in key_configs.items():
-            found = [c for c in config_lines if c.startswith(prefix)]
+            found = [c for c in config_lines if prefix in c]
             if found:
                 status = "enabled"
             else:
