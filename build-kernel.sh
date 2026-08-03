@@ -1,11 +1,41 @@
 #!/bin/bash
 set -e
 
-# The script locates itself - works regardless of what the containing folder
-# is named (GKI_KernelSU_SUSFS, GKI_KernelSU_SUSFS-main, or anything else;
+# Locates the repo automatically - works whether this script sits inside
+# the repo itself, or next to it (e.g. in $HOME alongside
+# GKI_KernelSU_SUSFS, GKI_KernelSU_SUSFS-main, or any other folder name;
 # git clone vs GitHub's "Download ZIP" produce different folder names).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$SCRIPT_DIR/.github/workflows/scripts"
+
+find_repo_dir() {
+    # 1) Maybe the script is already sitting inside the repo.
+    if [ -d "$SCRIPT_DIR/.github/workflows/scripts" ]; then
+        echo "$SCRIPT_DIR"
+        return 0
+    fi
+
+    # 2) Otherwise scan subdirectories next to the script (depth 1-3) for
+    #    the first one that contains .github/workflows/scripts.
+    local match
+    match="$(find "$SCRIPT_DIR" -maxdepth 3 -type d -path '*/.github/workflows/scripts' 2>/dev/null | head -n1)"
+    if [ -n "$match" ]; then
+        # strip the trailing /.github/workflows/scripts to get the repo root
+        echo "${match%/.github/workflows/scripts}"
+        return 0
+    fi
+
+    return 1
+}
+
+REPO_ROOT="$(find_repo_dir)" || {
+    echo "Could not find the GKI_KernelSU_SUSFS repo (looked for a"
+    echo "'.github/workflows/scripts' folder under: $SCRIPT_DIR"
+    echo "Place build-kernel.sh either inside the repo, or in a parent"
+    echo "folder that contains the repo as a subfolder."
+    exit 1
+}
+
+REPO_DIR="$REPO_ROOT/.github/workflows/scripts"
 MATRIX_FILE="$REPO_DIR/../config/matrix.json"
 WORKSPACE="$HOME/gki-workspace"
 LOGFILE="$HOME/build-$(date +%Y%m%d-%H%M%S).log"
@@ -88,7 +118,7 @@ if [ "$BUILD_OPTION" == "3" ]; then
     echo "Reading configurations from: $MATRIX_FILE"
     echo ""
 
-    # android|kernel|sub_level|os_patch|revision, one line per configuration
+    # android|kernel|sub_level|os_patch|revision|kernel_tag, one line per configuration
     mapfile -t CONFIGS < <(python3 -c "
 import json
 with open('$MATRIX_FILE') as f:
@@ -98,7 +128,7 @@ for key, entries in data.items():
     for e in entries:
         if not e.get('enabled', True):
             continue
-        print(f\"{android}|{kernel}|{e['sub_level']}|{e['os_patch_level']}|{e.get('revision', '')}\")
+        print(f\"{android}|{kernel}|{e['sub_level']}|{e['os_patch_level']}|{e.get('revision', '')}|{e.get('kernel_tag', '')}\")
 ")
 
     TOTAL=${#CONFIGS[@]}
@@ -109,7 +139,7 @@ for key, entries in data.items():
 
     echo "Found $TOTAL configuration(s) to build:"
     for line in "${CONFIGS[@]}"; do
-        IFS='|' read -r a k s p r <<< "$line"
+        IFS='|' read -r a k s p r t <<< "$line"
         echo "  - $a-$k-$s ($p)"
     done
     echo ""
@@ -122,7 +152,7 @@ for key, entries in data.items():
     N=0
 
     for line in "${CONFIGS[@]}"; do
-        IFS='|' read -r a k s p r <<< "$line"
+        IFS='|' read -r a k s p r t <<< "$line"
         N=$((N + 1))
         echo ""
         echo "========================================"
@@ -131,6 +161,11 @@ for key, entries in data.items():
 
         EXTRA_ARGS=()
         [ -n "$r" ] && EXTRA_ARGS+=(--revision "$r")
+        # Pin kernel/common to the exact respin tag update_matrix.py recorded
+        # for this sub_level/os_patch (instead of the moving branch HEAD),
+        # so this matches the known-working respin the matrix was updated
+        # from - not whatever Google has pushed to the branch since.
+        [ -n "$t" ] && EXTRA_ARGS+=(--kernel-tag "$t")
 
         if python3 build.py \
             --android "$a" \
