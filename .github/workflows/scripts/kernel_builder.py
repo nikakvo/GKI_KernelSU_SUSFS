@@ -372,54 +372,64 @@ CONFIG_PSI=y
             with open(kconfig_file, "w") as f:
                 f.write(content)
 
-    # fs/namespace.c: on some sub_levels Google adds/reorders nearby
-    # #include lines (e.g. an extra "#include <trace/hooks/blk.h>" seen
-    # on android14-6.1-172), which breaks the SUSFS patch's exact
-    # multi-line context match for hunk #1 even though the actual change
-    # (two small #ifdef blocks) has nothing to do with that line. Instead
-    # of relying on exact context, we insert these idempotently by
-    # anchor line, so it survives future include reshuffling too.
-    _NAMESPACE_C_SUSFS_INCLUDE_BLOCK = (
-        "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
-        "#include <linux/susfs_def.h>\n"
-        "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
-    )
-    _NAMESPACE_C_SUSFS_EXTERN_BLOCK = (
-        "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
-        "extern bool susfs_is_current_ksu_domain(void);\n"
-        "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n"
-        "\n"
-        "#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */\n"
-        "\n"
-        "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
-    )
-
-    def _fix_namespace_c_susfs_hooks(self) -> bool:
-        """Idempotently ensures the two SUSFS hook blocks are present in
-        fs/namespace.c. Returns True if the file ends up in the expected
-        state (either already had them, or they were inserted now)."""
+    # fs/namespace.c: on some sub_levels Google inserts
+    # "#include <trace/hooks/blk.h>" right in the middle of the SUSFS
+    # patch's context window, which breaks the patch's hunk match even
+    # though the actual SUSFS change is unrelated to that include.
+    # Confirmed against WildKernels/GKI_KernelSU_SUSFS's own build
+    # pipeline: instead of reconstructing the SUSFS hooks ourselves after
+    # a failed hunk, remove the interfering include before the patch runs
+    # (so the context matches the real, unmodified patch) and put it back
+    # right after. Idempotent - a no-op wherever the include isn't there.
+    def _preprocess_namespace_c_susfs_include(self) -> bool:
         namespace_c = self.work_dir / "common/fs/namespace.c"
         if not namespace_c.exists():
             return False
         content = namespace_c.read_text()
+        include_line = "#include <trace/hooks/blk.h>\n"
+        if include_line not in content:
+            return False
+        namespace_c.write_text(content.replace(include_line, "", 1))
+        logger.info(
+            "fs/namespace.c: temporarily removed 'trace/hooks/blk.h' include "
+            "so the SUSFS patch context matches (restored after patching)"
+        )
+        return True
 
-        if "susfs_def.h" in content and "susfs_is_current_ksu_domain" in content:
-            logger.info("fs/namespace.c already has SUSFS hooks, nothing to fix")
-            return True
+    def _restore_namespace_c_susfs_include(self):
+        namespace_c = self.work_dir / "common/fs/namespace.c"
+        if not namespace_c.exists():
+            return
+        content = namespace_c.read_text()
+        if "#include <trace/hooks/blk.h>" in content:
+            return
+        anchor = '#include "internal.h"\n'
+        if anchor in content:
+            namespace_c.write_text(content.replace(anchor, anchor + "#include <trace/hooks/blk.h>\n", 1))
+            logger.info("fs/namespace.c: restored 'trace/hooks/blk.h' include after SUSFS patch")
 
-        anchor_include = "#include <linux/mnt_idmapping.h>\n"
-        if anchor_include in content and self._NAMESPACE_C_SUSFS_INCLUDE_BLOCK not in content:
-            content = content.replace(anchor_include, anchor_include + self._NAMESPACE_C_SUSFS_INCLUDE_BLOCK, 1)
-
-        anchor_decl = "static unsigned int sysctl_mount_max __read_mostly = 100000;\n"
-        if anchor_decl in content and self._NAMESPACE_C_SUSFS_EXTERN_BLOCK not in content:
-            content = content.replace(anchor_decl, self._NAMESPACE_C_SUSFS_EXTERN_BLOCK + anchor_decl, 1)
-
-        namespace_c.write_text(content)
-        ok = "susfs_def.h" in content and "susfs_is_current_ksu_domain" in content
-        if ok:
-            logger.info("fs/namespace.c: SUSFS hooks inserted via anchor-based fallback")
-        return ok
+    # fs/namei.c: the SUSFS patch adds set_nameidata(nd, old_dfd,
+    # fake_filename, NULL) - 4 args - unconditionally, but 5.10 kernels
+    # (android12-5.10, android13-5.10) only ever had the 3-param
+    # set_nameidata(p, dfd, name) - there's no 4th/root param on this
+    # branch. Confirmed against WildKernels/GKI_KernelSU_SUSFS's own
+    # build pipeline, which applies the identical fix. No-op on any
+    # kernel version where this exact 4-arg call isn't present.
+    def _fix_namei_c_set_nameidata_arity(self):
+        namei_c = self.work_dir / "common/fs/namei.c"
+        if not namei_c.exists():
+            return
+        content = namei_c.read_text()
+        broken_call = "set_nameidata(nd, old_dfd, fake_filename, NULL)"
+        fixed_call = "set_nameidata(nd, old_dfd, fake_filename)"
+        if broken_call not in content:
+            return
+        count = content.count(broken_call)
+        namei_c.write_text(content.replace(broken_call, fixed_call))
+        logger.info(
+            f"fs/namei.c: fixed {count} set_nameidata() call(s) with a stray "
+            f"4th argument the function doesn't declare on 5.10 kernels"
+        )
 
     def apply_susfs_patches(self):
         logger.info("=== Applying SUSFS patches ===")
@@ -444,24 +454,19 @@ CONFIG_PSI=y
             if src.exists():
                 self._run_cmd(f"cp -r {src}/* {dst}", check=False)
 
+        removed_blk_include = self._preprocess_namespace_c_susfs_include()
+
         patch_file = common_dir / self.config.get_susfs_patch_filename()
         self._chdir(common_dir)
         result = self._run_cmd(f"patch -p1 --fuzz=3 < {patch_file}", check=False)
         self._chdir(self.work_dir)
+
+        if removed_blk_include:
+            self._restore_namespace_c_susfs_include()
+
+        self._fix_namei_c_set_nameidata_arity()
+
         if result.returncode != 0:
-            rej_files = list(common_dir.glob("**/*.rej"))
-            only_known_namespace_issue = (
-                len(rej_files) == 1 and rej_files[0].name == "namespace.c.rej"
-            )
-            if only_known_namespace_issue and self._fix_namespace_c_susfs_hooks():
-                rej_files[0].unlink(missing_ok=True)
-                logger.warning(
-                    "fs/namespace.c hunk failed via the normal patch context "
-                    "(known drift - Google adds/reorders nearby #include "
-                    "lines on some sub_levels) but was fixed automatically "
-                    "via anchor-based insertion. Continuing."
-                )
-                return
             raise RuntimeError(
                 f"SUSFS patch failed to apply cleanly: {patch_file} "
                 f"(patch exit code {result.returncode}). The kernel source "
@@ -859,6 +864,49 @@ CONFIG_PSI=y
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         logger.info(f"Build report written to: {report_path}")
 
+    def remove_protected_exports(self):
+        """Removes ABI protected-exports enforcement for Bazel builds.
+        Google's official abi_gki_protected_exports_* lists (and the
+        protected_exports_list/protected_modules wiring in BUILD.bazel/
+        modules.bzl) exist so *Google's own* GKI doesn't accidentally
+        break symbols vendor modules already depend on. A custom
+        KernelSU/SUSFS kernel isn't trying to stay protected-export
+        compatible with stock GKI, so this enforcement only gets in the
+        way. Confirmed against WildKernels/GKI_KernelSU_SUSFS's own build
+        pipeline, which does the exact same removal. This is separate
+        from (and complementary to) --nokmi_symbol_list_strict_mode in
+        build_kernel() - that covers the KMI symbol list check, this
+        covers protected-exports enforcement. No-op for the legacy
+        build.sh path (that build system doesn't have this concept)."""
+        if (self.work_dir / "build/build.sh").exists():
+            return
+        common_dir = self.work_dir / "common"
+        logger.info("=== Removing protected exports (Bazel build) ===")
+        self._run_cmd(f"rm -rf {common_dir}/android/abi_gki_protected_exports_*", check=False)
+
+        build_bazel = common_dir / "BUILD.bazel"
+        if build_bazel.exists():
+            content = build_bazel.read_text()
+            new_content = re.sub(
+                r'^\s*"protected_exports_list"\s*:\s*"android/abi_gki_protected_exports_aarch64",\s*\n',
+                '', content, flags=re.MULTILINE
+            )
+            new_content = re.sub(
+                r'^\s*protected_module_names_list\s*=\s*":gki_(?:aarch64|x86_64)_protected_module_names",\s*\n',
+                '', new_content, flags=re.MULTILINE
+            )
+            if new_content != content:
+                build_bazel.write_text(new_content)
+                logger.info("common/BUILD.bazel: removed protected_exports_list / protected_module_names_list references")
+
+        modules_bzl = common_dir / "modules.bzl"
+        if modules_bzl.exists():
+            content = modules_bzl.read_text()
+            new_content = re.sub(r'protected_modules\s*=\s*\[.*?\]', 'protected_modules = []', content, flags=re.DOTALL)
+            if new_content != content:
+                modules_bzl.write_text(new_content)
+                logger.info("common/modules.bzl: cleared protected_modules")
+
     def build_kernel(self) -> bool:
         logger.info("=== Starting kernel compilation ===")
         self._chdir(self.work_dir)
@@ -898,6 +946,7 @@ CONFIG_PSI=y
             else:
                 logger.info("Using Bazel build method...")
                 self._canonicalize_defconfig()
+                self.remove_protected_exports()
                 bazel_cache.mkdir(parents=True, exist_ok=True)
 
             success, output = self._run_build_command(_build_cmd(lto_mode))
