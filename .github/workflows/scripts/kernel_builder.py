@@ -142,6 +142,7 @@ CONFIG_PSI=y
         self.kernel_patches_dir = self.workspace / "kernel_patches"
         self.toolchain_dir = self.workspace / "toolchain"
         self.mkbootimg_dir = self.workspace / "mkbootimg"
+        self.lto_fallback_used = False
         self._setup_env()
 
     def _setup_env(self):
@@ -688,6 +689,78 @@ CONFIG_PSI=y
             else:
                 logger.warning("savedefconfig did not produce an output file, leaving gki_defconfig as-is")
 
+    # Known LLVM/clang verifier bug seen on some GKI branches (currently
+    # android15-6.6 and up): ThinLTO + debug info trips over
+    # sanitizer-inserted calls (e.g. __asan_handle_no_return) that are
+    # missing !dbg metadata, and the module verifier aborts the build
+    # with "Broken module found". This is an upstream Google/AOSP
+    # toolchain regression tied to the clang prebuilt bundled with that
+    # branch - not something this build pipeline introduces. We detect
+    # it and transparently retry the same build with LTO=none.
+    _LTO_VERIFIER_BUG_MARKERS = (
+        "must have a !dbg location",
+        "Broken module found, compilation aborted",
+    )
+
+    def _looks_like_lto_verifier_bug(self, output: str) -> bool:
+        return all(marker in output for marker in self._LTO_VERIFIER_BUG_MARKERS)
+
+    @property
+    def artifact_suffix(self) -> str:
+        """Appended to artifact filenames when the ThinLTO fallback kicked
+        in, so it's visible at a glance in the workspace/release listing
+        which builds are running without GKI-standard ThinLTO trimming -
+        no need to dig through the build log to find out."""
+        return "-noLTO" if self.lto_fallback_used else ""
+
+    def _run_build_command(self, cmd: str) -> tuple:
+        """Runs a (potentially very long) build command. Streams output
+        live exactly as before, while also capturing it so build_kernel()
+        can check it for known failure signatures afterwards."""
+        lines = []
+
+        def _capture(line: str):
+            lines.append(line)
+            print(line)
+
+        try:
+            self.shell.run_with_callback(cmd, callback=_capture)
+            return True, "\n".join(lines)
+        except RuntimeError:
+            return False, "\n".join(lines)
+
+    def _write_build_report(self, lto_mode: str, fallback_used: bool, success: bool, build_seconds: float, is_legacy: bool):
+        """Writes a short, human-readable summary of how this kernel was
+        actually built (build method, LTO mode, whether the ThinLTO
+        fallback kicked in) - so this doesn't have to be dug out of the
+        full build log."""
+        from datetime import datetime
+        report_path = self.work_dir / "BUILD_REPORT.txt"
+        lines = [
+            "GKI Kernel Build Report",
+            "=" * 40,
+            f"Config:        {self.config.config_name}",
+            f"Timestamp:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Build method:  {'Legacy build.sh' if is_legacy else 'Bazel (Kleaf)'}",
+            f"LTO mode used: {lto_mode}",
+            f"Result:        {'SUCCESS' if success else 'FAILED'}",
+            f"Build time:    {build_seconds:.1f}s",
+        ]
+        if fallback_used:
+            lines += [
+                "",
+                "NOTE: --lto=thin failed with a known LLVM/clang verifier bug",
+                '(sanitizer-inserted call missing debug-info location, "Broken',
+                'module found, compilation aborted"). This is an upstream',
+                "Google/AOSP toolchain issue on this branch's bundled clang -",
+                "not something in this build pipeline. The kernel was rebuilt",
+                "with LTO=none as a fallback: it is fully functional, but does",
+                "NOT have GKI-standard ThinLTO trimming/optimization like",
+                "Google's official build for this branch.",
+            ]
+        report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        logger.info(f"Build report written to: {report_path}")
+
     def build_kernel(self) -> bool:
         logger.info("=== Starting kernel compilation ===")
         self._chdir(self.work_dir)
@@ -701,23 +774,48 @@ CONFIG_PSI=y
             with open(build_config, "w") as f:
                 f.write('\n'.join(lines))
 
+        import time
+        start_time = time.time()
+        lto_mode = "thin"
+        fallback_used = False
+        is_legacy = (self.work_dir / "build/build.sh").exists()
+        bazel_cache = Path.home() / ".cache" / "bazel"
+
+        def _build_cmd(lto: str) -> str:
+            if is_legacy:
+                return f"LTO={lto} BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
+            return f"tools/bazel build --disk_cache={bazel_cache} --config=fast --lto={lto} //common:kernel_aarch64_dist"
+
         try:
-            if (self.work_dir / "build/build.sh").exists():
+            if is_legacy:
                 logger.info("Using legacy build method...")
-                result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
             else:
                 logger.info("Using Bazel build method...")
                 self._canonicalize_defconfig()
-                bazel_cache = Path.home() / ".cache" / "bazel"
                 bazel_cache.mkdir(parents=True, exist_ok=True)
-                result = self._run_cmd(
-                    f"tools/bazel build --disk_cache={bazel_cache} --config=fast --lto=thin //common:kernel_aarch64_dist",
-                    check=False)
 
-            if result.returncode == 0:
+            success, output = self._run_build_command(_build_cmd(lto_mode))
+
+            if not success and self._looks_like_lto_verifier_bug(output):
+                logger.warning(
+                    "ThinLTO hit a known LLVM verifier bug (missing !dbg on a "
+                    "sanitizer-inserted call, \"Broken module found\") - this "
+                    "is an upstream Google/AOSP clang toolchain issue on this "
+                    "branch, not a problem with this build pipeline. "
+                    "Retrying with LTO=none..."
+                )
+                lto_mode = "none"
+                fallback_used = True
+                self.lto_fallback_used = True
+                success, output = self._run_build_command(_build_cmd(lto_mode))
+
+            build_seconds = time.time() - start_time
+            self._write_build_report(lto_mode, fallback_used, success, build_seconds, is_legacy)
+
+            if success:
                 logger.info("=== Kernel compilation succeeded ===")
                 return True
-            logger.error(f"Kernel compilation failed: {result.stderr if result.stderr else 'Unknown error'}")
+            logger.error("Kernel compilation failed")
             return False
         except Exception as e:
             logger.error(f"Error during compilation: {e}")
@@ -797,7 +895,7 @@ CONFIG_PSI=y
                 cmd += f" --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level {self.config.os_patch_level}"
             self._run_cmd(cmd, check=False)
             self._run_cmd(f"$AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image {output_file} --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH", check=False)
-            dest = self.work_dir / f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}-{output_file}"
+            dest = self.work_dir / f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}{self.artifact_suffix}-{output_file}"
             self._run_cmd(f"cp {output_file} {dest}", check=False)
             artifacts.append(str(dest))
 
@@ -812,7 +910,7 @@ CONFIG_PSI=y
             image_path = self.work_dir / image_file
             if not image_path.exists():
                 continue
-            zip_name = f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}-AnyKernel3{suffix}.zip"
+            zip_name = f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}{self.artifact_suffix}-AnyKernel3{suffix}.zip"
             self._run_cmd(f"cp {image_path} {ak3_dir}/", check=False)
             self._chdir(ak3_dir)
             self._run_cmd(f"zip -r ../{zip_name} ./*", check=False)
