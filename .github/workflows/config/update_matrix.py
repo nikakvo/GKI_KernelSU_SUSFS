@@ -57,7 +57,7 @@ RETRY_BASE_DELAY = 2.0       # seconds, doubles each retry (2, 4, 8, 16, 32)
 
 
 def fetch_tags() -> list[str]:
-    print("Изтеглям списък с тагове от kernel/common (git ls-remote)...")
+    print("Fetching tag list from kernel/common (git ls-remote)...")
     result = subprocess.run(
         ["git", "ls-remote", "--tags", REMOTE],
         capture_output=True, text=True, check=True, timeout=120,
@@ -70,7 +70,7 @@ def fetch_tags() -> list[str]:
         if tag.endswith("^{}"):
             continue
         tags.append(tag)
-    print(f"Намерени {len(tags)} тага общо.")
+    print(f"Found {len(tags)} tags total.")
     return tags
 
 
@@ -116,21 +116,21 @@ def fetch_sub_level(tag: str) -> str | None:
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < MAX_RETRIES:
                 delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                print(f"  429 за {tag}, изчаквам {delay:.0f}s и опитвам пак "
+                print(f"  429 for {tag}, waiting {delay:.0f}s and retrying "
                       f"({attempt}/{MAX_RETRIES})...")
                 time.sleep(delay)
                 continue
-            print(f"  ! Неуспешно четене на Makefile за {tag}: {e}")
+            print(f"  ! Failed to read Makefile for {tag}: {e}")
             return None
         except Exception as e:
-            print(f"  ! Неуспешно четене на Makefile за {tag}: {e}")
+            print(f"  ! Failed to read Makefile for {tag}: {e}")
             return None
     else:
         return None
 
     m = re.search(r'^SUBLEVEL\s*=\s*(\S+)', content, re.MULTILINE)
     if not m:
-        print(f"  ! Не намерих SUBLEVEL в Makefile-а на {tag}")
+        print(f"  ! Could not find SUBLEVEL in the Makefile for {tag}")
         return None
     return m.group(1)
 
@@ -196,11 +196,11 @@ def main():
         by_patch = {e["os_patch_level"]: e for e in entries}
 
         for patch, (respin, tag) in sorted(latest.get((android, kernel), {}).items()):
-            print(f"{matrix_key} / {patch}: последен respin е r{respin} ({tag})")
+            print(f"{matrix_key} / {patch}: latest respin is r{respin} ({tag})")
             sub_level = fetch_sub_level(tag)
             time.sleep(REQUEST_DELAY)
             if sub_level is None:
-                warnings.append(f"{matrix_key} {patch}: пропуснат (не успях да намеря sub_level)")
+                warnings.append(f"{matrix_key} {patch}: skipped (could not determine sub_level)")
                 continue
 
             existing = by_patch.get(patch)
@@ -213,15 +213,15 @@ def main():
                 }
                 entries.append(new_entry)
                 by_patch[patch] = new_entry
-                changes.append(f"+ НОВ: {matrix_key} {patch} -> sub_level {sub_level}, {tag} (enabled: false)")
+                changes.append(f"+ NEW: {matrix_key} {patch} -> sub_level {sub_level}, {tag} (enabled: false)")
             else:
                 old_tag = existing.get("kernel_tag")
                 old_sub = existing.get("sub_level")
                 if old_tag != tag or old_sub != sub_level:
                     changes.append(
-                        f"~ ОБНОВЕН: {matrix_key} {patch}: "
+                        f"~ UPDATED: {matrix_key} {patch}: "
                         f"sub_level {old_sub}->{sub_level}, tag {old_tag}->{tag} "
-                        f"(enabled остава: {existing.get('enabled', True)})"
+                        f"(enabled stays: {existing.get('enabled', True)})"
                     )
                     existing["sub_level"] = sub_level
                     existing["kernel_tag"] = tag
@@ -233,33 +233,33 @@ def main():
             if e.get("enabled") and e["os_patch_level"] not in active_patches:
                 warnings.append(
                     f"⚠ {matrix_key} {e['os_patch_level']} (sub_level {e['sub_level']}) "
-                    f"е enabled, но branch-ът вече не излиза сред текущите тагове "
-                    f"(deprecated/премахнат, или извън {months}-месечния прозорец) - провери ръчно"
+                    f"is enabled, but the branch no longer appears among current tags "
+                    f"(deprecated/removed, or outside the {months}-month window) - check manually"
                 )
 
     print("\n" + "=" * 60)
     if changes:
-        print(f"Промени ({len(changes)}):")
+        print(f"Changes ({len(changes)}):")
         for c in changes:
             print(f"  {c}")
     else:
-        print("Няма промени - matrix.json вече е актуален.")
+        print("No changes - matrix.json is already up to date.")
 
     if warnings:
-        print(f"\nПредупреждения ({len(warnings)}):")
+        print(f"\nWarnings ({len(warnings)}):")
         for w in warnings:
             print(f"  {w}")
     print("=" * 60)
 
     if dry_run:
-        print("\n--dry-run: matrix.json НЕ е презаписан.")
+        print("\n--dry-run: matrix.json was NOT written.")
         return
 
     if changes:
         write_matrix_compact(matrix, MATRIX_FILE)
-        print(f"\nmatrix.json обновен: {MATRIX_FILE}")
+        print(f"\nmatrix.json updated: {MATRIX_FILE}")
     else:
-        print("\nНищо за записване.")
+        print("\nNothing to write.")
 
 
 if __name__ == "__main__":
