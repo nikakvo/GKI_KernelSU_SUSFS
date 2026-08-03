@@ -16,6 +16,11 @@ def generate_build_matrix() -> list:
     for key, configs in matrix.items():
         android, kernel = key.split('-')
         for cfg in configs:
+            # Only include entries the matrix marks as enabled - keeps this
+            # in sync with update_matrix.py (which adds new respins as
+            # enabled: false) and with build-kernel.sh's local build logic.
+            if not cfg.get("enabled", True):
+                continue
             build = {
                 "android": android,
                 "kernel": kernel,
@@ -26,18 +31,19 @@ def generate_build_matrix() -> list:
                 build["revision"] = cfg["revision"]
             builds.append(build)
 
-    # 按 Android 版本和 Kernel 版本排序
+    # Sort by Android version and kernel version
     builds.sort(key=lambda x: (
         int(x["android"].replace("android", "")),
         float(x["kernel"]),
-        x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"  # X (LTS) 排在最后
+        x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"  # X (LTS) goes last
     ))
 
     return builds
 
 
 def generate_classified_matrix() -> dict:
-    """生成按 Android 版本分类的矩阵"""
+    """Generate a matrix grouped by Android version (enabled entries only -
+    see the note in generate_build_matrix())."""
     matrix_path = Path(__file__).parent.parent / "config" / "matrix.json"
     with open(matrix_path, 'r') as f:
         matrix = json.load(f)
@@ -45,19 +51,21 @@ def generate_classified_matrix() -> dict:
     classified = {}
     for key, configs in matrix.items():
         android, kernel = key.split('-')
-        if android not in classified:
-            classified[android] = {}
-        if kernel not in classified[android]:
-            classified[android][kernel] = []
         for cfg in configs:
+            if not cfg.get("enabled", True):
+                continue
+            if android not in classified:
+                classified[android] = {}
+            if kernel not in classified[android]:
+                classified[android][kernel] = []
             classified[android][kernel].append(cfg)
 
-    # 排序
+    # Sort
     sorted_classified = {}
     for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
         sorted_classified[android] = {}
         for kernel in sorted(classified[android].keys(), key=lambda x: float(x)):
-            # 按 sub_level 排序，X (LTS) 排在最后
+            # Sort by sub_level, X (LTS) goes last
             sorted_classified[android][kernel] = sorted(
                 classified[android][kernel],
                 key=lambda x: x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"
@@ -73,20 +81,20 @@ def save_matrix_output():
         f.write(output + '\n')
     print(f"Matrix generated: {len(builds)} builds")
 
-    # 保存版本号
+    # Save version number
     version_output = f'kernel_version={KERNEL_VERSION}'
     with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
         f.write(version_output + '\n')
     print(f"Kernel version: {KERNEL_VERSION}")
 
-    # 同时保存分类后的矩阵
+    # Also save the classified matrix
     classified = generate_classified_matrix()
     classified_output = 'classified_matrix=' + json.dumps(classified)
     with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
         f.write(classified_output + '\n')
     print(f"Classified matrix saved")
 
-    # 保存矩阵摘要
+    # Save matrix summary
     summary = []
     for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
         for kernel, configs in classified[android].items():
@@ -97,8 +105,8 @@ def save_matrix_output():
     with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
         f.write(summary_output + '\n')
 
-    # 保存 Markdown 格式的摘要
-    md_summary = "### 构建矩阵摘要\n\n"
+    # Save Markdown-formatted summary
+    md_summary = "### Build Matrix Summary\n\n"
     for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
         md_summary += f"**{android.upper()}**\n\n"
         for kernel, configs in classified[android].items():
