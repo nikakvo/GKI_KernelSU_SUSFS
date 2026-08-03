@@ -811,7 +811,15 @@ CONFIG_PSI=y
 
         def _capture(line: str):
             lines.append(line)
-            print(line)
+            # flush=True: without it, stdout is fully block-buffered once
+            # piped through tee (build-kernel.sh does `2>&1 | tee log`),
+            # while the logger's stderr writes are not - so these lines
+            # could show up in the log file out of chronological order
+            # relative to logger.info/warning/error calls (e.g. a WARNING
+            # about a retry appearing before the failure output that
+            # triggered it). Flushing immediately keeps the log readable
+            # top-to-bottom.
+            print(line, flush=True)
 
         try:
             self.shell.run_with_callback(cmd, callback=_capture)
