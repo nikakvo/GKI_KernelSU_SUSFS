@@ -124,6 +124,29 @@ CONFIG_LRU_GEN_ENABLED=y
 
 # === PSI (Pressure Stall Information) Config ===
 CONFIG_PSI=y
+
+# === BFQ I/O Scheduler Config ===
+# Compiles BFQ in and makes it selectable/available - does not by
+# itself change the active scheduler at boot. Check/set at runtime via
+# /sys/block/<dev>/queue/scheduler.
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+
+# === KSM (Kernel Samepage Merging) Config ===
+# Compiles KSM in and makes it available - scanning/merging is off by
+# default at boot (standard upstream behavior) and must be started at
+# runtime via /sys/kernel/mm/ksm/run.
+CONFIG_KSM=y
+
+# === F2FS Transparent Compression Config ===
+# Compiles compression support into the F2FS driver - whether any given
+# mount actually compresses files depends on fstab mount options
+# (compress_extension) set by the vendor partition, which this kernel
+# does not control.
+CONFIG_F2FS_FS_COMPRESSION=y
+CONFIG_F2FS_FS_LZ4=y
+CONFIG_F2FS_FS_LZ4HC=y
+CONFIG_F2FS_FS_ZSTD=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -538,6 +561,53 @@ CONFIG_PSI=y
                 task_mmu_c.write_text(content.replace("vma_pages", "vma_data_pages"))
                 logger.info("fs/proc/task_mmu.c: restored vma_pages -> vma_data_pages")
 
+    # mm/mmap.c: some SUSFS patch hunks call vm_flags_clear() - a VMA
+    # helper Google added to kernel/common at different os_patch_levels
+    # per branch (same story as VMA_PAD_START/page-size-migration: a
+    # later Google addition that older os_patch_levels in our build
+    # matrix predate). When missing, this fails with "implicit
+    # declaration of function 'vm_flags_clear'". We fall back to a
+    # direct vm_flags &= ~flags definition, but only if it's genuinely
+    # not declared anywhere upstream (checked broadly across include/,
+    # not just one hardcoded header) to avoid a redefinition error on
+    # sub_levels where it already exists.
+    def _fix_vm_flags_clear_compat(self):
+        common_dir = self.work_dir / "common"
+        mmap_c = common_dir / "mm/mmap.c"
+        if not mmap_c.exists():
+            return
+        content = mmap_c.read_text()
+        if "vm_flags_clear(" not in content or "VM_FLAGS_CLEAR_COMPAT_DEFINED" in content:
+            return
+
+        include_dir = common_dir / "include"
+        if include_dir.exists():
+            for header in include_dir.rglob("*.h"):
+                try:
+                    if "vm_flags_clear" in header.read_text(errors="ignore"):
+                        return  # already declared upstream, nothing to do
+                except OSError:
+                    continue
+
+        fallback = (
+            "\n#ifndef VM_FLAGS_CLEAR_COMPAT_DEFINED\n"
+            "#define VM_FLAGS_CLEAR_COMPAT_DEFINED\n"
+            "static inline void vm_flags_clear(struct vm_area_struct *vma, unsigned long flags)\n"
+            "{\n"
+            "\tvma->vm_flags &= ~flags;\n"
+            "}\n"
+            "#endif\n"
+        )
+        lines = content.split("\n")
+        include_indices = [i for i, l in enumerate(lines) if l.startswith("#include")]
+        insert_at = (max(include_indices) + 1) if include_indices else 0
+        lines.insert(insert_at, fallback)
+        mmap_c.write_text("\n".join(lines))
+        logger.info(
+            "mm/mmap.c: added vm_flags_clear() compat fallback (not "
+            "declared upstream for this sub_level)"
+        )
+
     def apply_susfs_patches(self):
         logger.info("=== Applying SUSFS patches ===")
         self._chdir(self.work_dir)
@@ -574,6 +644,7 @@ CONFIG_PSI=y
         self._restore_android16_fake_patches(android16_applied)
 
         self._fix_namei_c_set_nameidata_arity()
+        self._fix_vm_flags_clear_compat()
 
         if result.returncode != 0:
             raise RuntimeError(
@@ -832,6 +903,9 @@ CONFIG_PSI=y
                             # and CONFIG_DEFAULT_BBR - neither actually starts
                             # with "CONFIG_BBR", so this can't use a prefix match
             "CONFIG_ZRAM": "ZRAM",
+            "BFQ": "BFQ I/O Scheduler",
+            "CONFIG_KSM": "KSM",
+            "F2FS_FS_": "F2FS Compression",
         }
         
         logger.info("Key config status:")
