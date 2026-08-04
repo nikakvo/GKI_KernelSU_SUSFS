@@ -184,7 +184,19 @@ CONFIG_PSI=y
                 if branch:
                     cmd += f" -b {branch}"
                 logger.info(f"Cloning {name}...")
-                self._run_cmd(cmd, check=False)
+                result = self._run_cmd(cmd, check=False)
+                if name == "SUSFS" and result.returncode != 0:
+                    raise RuntimeError(
+                        f"Failed to clone SUSFS branch '{branch}' from {url} "
+                        f"(git clone exit code {result.returncode}).\n"
+                        f"This branch may not exist yet on this fork - susfs4ksu "
+                        f"forks can lag behind upstream for newer Android/kernel "
+                        f"combos (e.g. ShirkNeko's fork didn't have "
+                        f"gki-android16-6.12 for a while after it existed "
+                        f"upstream). Check: {url.replace('.git', '')}/branches\n"
+                        f"Failing here instead of continuing into a long kernel "
+                        f"repo sync that would fail later anyway."
+                    )
             else:
                 logger.info(f"{name} already exists, skipping clone")
                 if branch:
@@ -196,10 +208,22 @@ CONFIG_PSI=y
                     # the right one before continuing, instead of silently
                     # using whatever happens to be checked out.
                     self._chdir(repo_dir)
-                    self._run_cmd(f"git fetch origin {branch}", check=False)
+                    fetch_result = self._run_cmd(f"git fetch origin {branch}", check=False)
                     self._run_cmd(f"git checkout {branch}", check=False)
                     self._run_cmd(f"git reset --hard origin/{branch}", check=False)
                     self._chdir(self.workspace)
+                    if name == "SUSFS" and fetch_result.returncode != 0:
+                        raise RuntimeError(
+                            f"Failed to fetch SUSFS branch '{branch}' from {url} "
+                            f"(git fetch exit code {fetch_result.returncode}).\n"
+                            f"This branch may not exist yet on this fork - susfs4ksu "
+                            f"forks can lag behind upstream for newer Android/kernel "
+                            f"combos (e.g. ShirkNeko's fork didn't have "
+                            f"gki-android16-6.12 for a while after it existed "
+                            f"upstream). Check: {url.replace('.git', '')}/branches\n"
+                            f"Failing here instead of continuing into a long kernel "
+                            f"repo sync that would fail later anyway."
+                        )
         self._apply_susfs_commit()
         logger.info("=== Repository cloning complete ===")
 
