@@ -372,16 +372,33 @@ CONFIG_PSI=y
             with open(kconfig_file, "w") as f:
                 f.write(content)
 
-    # fs/namespace.c: on some sub_levels Google inserts
-    # "#include <trace/hooks/blk.h>" right in the middle of the SUSFS
-    # patch's context window, which breaks the patch's hunk match even
-    # though the actual SUSFS change is unrelated to that include.
-    # Confirmed against WildKernels/GKI_KernelSU_SUSFS's own build
-    # pipeline: instead of reconstructing the SUSFS hooks ourselves after
-    # a failed hunk, remove the interfering include before the patch runs
-    # (so the context matches the real, unmodified patch) and put it back
-    # right after. Idempotent - a no-op wherever the include isn't there.
+    # fs/namespace.c: on SOME specific branches/sub_levels, the SUSFS
+    # patch was written against a version of this file that lacks
+    # "#include <trace/hooks/blk.h>" (Google added it later), so the
+    # patch's context window doesn't match unless we remove it first and
+    # restore it after. This must stay gated to the exact
+    # android/sub_level combinations where that's true (confirmed against
+    # WildKernels/GKI_KernelSU_SUSFS's own build pipeline) - on other
+    # branches (e.g. android15-6.6) the file already matches the patch's
+    # expected context as-is, and removing the include only breaks a
+    # hunk that would otherwise apply cleanly.
+    _NAMESPACE_C_BLK_INCLUDE_FIX_RANGES = {
+        ("android13", "5.15"): 197,
+        ("android14", "6.1"): 157,
+    }
+
+    def _namespace_c_blk_include_fix_applies(self) -> bool:
+        threshold = self._NAMESPACE_C_BLK_INCLUDE_FIX_RANGES.get(
+            (self.config.android_version, self.config.kernel_version)
+        )
+        if threshold is None:
+            return False
+        sub_level = self.config.get_sub_level_int()
+        return sub_level is not None and sub_level >= threshold
+
     def _preprocess_namespace_c_susfs_include(self) -> bool:
+        if not self._namespace_c_blk_include_fix_applies():
+            return False
         namespace_c = self.work_dir / "common/fs/namespace.c"
         if not namespace_c.exists():
             return False
@@ -437,6 +454,66 @@ CONFIG_PSI=y
             f"4th argument the function doesn't declare on 5.10 kernels"
         )
 
+    # android16-6.12: two known source-vs-patch drift issues, confirmed
+    # against WildKernels/GKI_KernelSU_SUSFS's own build pipeline. Same
+    # remove-before/restore-after pattern as the namespace.c blk.h fix
+    # above - gated to the exact sub_level thresholds where each is
+    # needed, not applied blindly to every android16-6.12 build.
+    def _preprocess_android16_fake_patches(self) -> dict:
+        applied = {"exec_dma_buf": False, "task_mmu_vma_rename": False}
+        if not (self.config.android_version == "android16" and self.config.kernel_version == "6.12"):
+            return applied
+        sub_level = self.config.get_sub_level_int()
+        if sub_level is None:
+            return applied
+
+        if sub_level >= 58:
+            exec_c = self.work_dir / "common/fs/exec.c"
+            if exec_c.exists():
+                content = exec_c.read_text()
+                include_line = "#include <linux/dma-buf.h>\n"
+                if include_line in content:
+                    exec_c.write_text(content.replace(include_line, "", 1))
+                    applied["exec_dma_buf"] = True
+                    logger.info(
+                        "fs/exec.c: temporarily removed 'linux/dma-buf.h' include "
+                        "(android16-6.12 >=58, restored after patching)"
+                    )
+
+        if sub_level >= 69:
+            task_mmu_c = self.work_dir / "common/fs/proc/task_mmu.c"
+            if task_mmu_c.exists():
+                content = task_mmu_c.read_text()
+                if "vma_data_pages" in content:
+                    task_mmu_c.write_text(content.replace("vma_data_pages", "vma_pages"))
+                    applied["task_mmu_vma_rename"] = True
+                    logger.info(
+                        "fs/proc/task_mmu.c: temporarily renamed vma_data_pages -> "
+                        "vma_pages (android16-6.12 >=69, restored after patching)"
+                    )
+
+        return applied
+
+    def _restore_android16_fake_patches(self, applied: dict):
+        if applied.get("exec_dma_buf"):
+            exec_c = self.work_dir / "common/fs/exec.c"
+            if exec_c.exists():
+                content = exec_c.read_text()
+                if "#include <linux/dma-buf.h>" not in content:
+                    head, sep, rest = content.partition("#include ")
+                    if sep:
+                        line_end = rest.find("\n") + 1
+                        content = head + sep + rest[:line_end] + "#include <linux/dma-buf.h>\n" + rest[line_end:]
+                        exec_c.write_text(content)
+                        logger.info("fs/exec.c: restored 'linux/dma-buf.h' include")
+
+        if applied.get("task_mmu_vma_rename"):
+            task_mmu_c = self.work_dir / "common/fs/proc/task_mmu.c"
+            if task_mmu_c.exists():
+                content = task_mmu_c.read_text()
+                task_mmu_c.write_text(content.replace("vma_pages", "vma_data_pages"))
+                logger.info("fs/proc/task_mmu.c: restored vma_pages -> vma_data_pages")
+
     def apply_susfs_patches(self):
         logger.info("=== Applying SUSFS patches ===")
         self._chdir(self.work_dir)
@@ -461,6 +538,7 @@ CONFIG_PSI=y
                 self._run_cmd(f"cp -r {src}/* {dst}", check=False)
 
         removed_blk_include = self._preprocess_namespace_c_susfs_include()
+        android16_applied = self._preprocess_android16_fake_patches()
 
         patch_file = common_dir / self.config.get_susfs_patch_filename()
         self._chdir(common_dir)
@@ -469,6 +547,7 @@ CONFIG_PSI=y
 
         if removed_blk_include:
             self._restore_namespace_c_susfs_include()
+        self._restore_android16_fake_patches(android16_applied)
 
         self._fix_namei_c_set_nameidata_arity()
 
@@ -938,15 +1017,21 @@ CONFIG_PSI=y
         def _build_cmd(lto: str) -> str:
             if is_legacy:
                 return f"LTO={lto} BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
-            # --nokmi_symbol_list_strict_mode: a custom KernelSU/SUSFS kernel
-            # always diverges from Google's official per-branch KMI symbol
-            # list (new susfs_*/ksu_* symbols added, some upstream symbols
-            # like kasan_flag_enabled missing depending on config) - this
-            # check is only meaningful for kernels that must stay ABI-compatible
-            # with Google's stock GKI, which doesn't apply here.
+            # Building //common:kernel_aarch64/Image directly (instead of
+            # the full //common:kernel_aarch64_dist target) matches
+            # WildKernels/GKI_KernelSU_SUSFS's own build-kernel action.
+            # The _dist target also runs GKI certification/ABI-validation
+            # actions we don't need for a custom KernelSU/SUSFS kernel;
+            # building the bare Image skips that dependency chain
+            # entirely - which is likely also why WildKernels doesn't need
+            # any KMI-strict-mode workaround. The Image lands in the same
+            # bazel-bin/common/kernel_aarch64/ path our artifact-gathering
+            # code already expects, so no other changes are needed here.
+            # --nokmi_symbol_list_strict_mode kept as a defensive no-op in
+            # case this target still runs that check on some branch.
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
                     f"--lto={lto} --nokmi_symbol_list_strict_mode "
-                    f"--nokmi_symbol_list_violations_check //common:kernel_aarch64_dist")
+                    f"--nokmi_symbol_list_violations_check //common:kernel_aarch64/Image")
 
         try:
             if is_legacy:
