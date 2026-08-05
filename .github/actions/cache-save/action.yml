@@ -27,7 +27,10 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
         TARGET_REPO: "${{ github.repository }}"
       run: |
-        set -euo pipefail
+        set -uo pipefail
+        # NOTE: intentionally not using 'set -e' here - saving the cache
+        # is a pure optimization (speeds up future builds). It must
+        # never fail the job and discard an otherwise successful build.
 
         CACHE_PATH="${{ inputs.cache_path }}"
         TAG_NAME="${{ inputs.cache_bucket }}"
@@ -63,12 +66,24 @@ runs:
           gh release create "$TAG_NAME" --title "Build Cache" --notes "Automated build cache storage" --repo "$TARGET_REPO" || true
         fi
 
+        # Defensive: explicitly delete any stale/racing asset with this
+        # exact name before uploading, instead of relying solely on
+        # --clobber's internal delete+upload (which can still lose a
+        # race under concurrent matrix jobs / repeated workflow runs on
+        # the same branch, since cache_key is branch-scoped, not
+        # run-scoped). Ignore errors - the asset may simply not exist.
+        gh release delete-asset "$TAG_NAME" "$CACHE_FILE" --repo "$TARGET_REPO" --yes >/dev/null 2>&1 || true
+
         echo "Uploading cache..."
         if timeout 10m gh release upload "$TAG_NAME" "$CACHE_FILE" --clobber --repo "$TARGET_REPO"; then
           echo "Cache uploaded successfully!"
           rm -f "$CACHE_FILE"
         else
-          echo "Failed to upload cache"
+          # Non-fatal: cache save is an optimization, not a build
+          # requirement. Log and move on so the job's actual build
+          # artifacts still get uploaded normally.
+          echo "::warning::Failed to upload build cache for key '${{ inputs.cache_key }}' - continuing without it (this does not affect the kernel build itself)"
           rm -f "$CACHE_FILE"
-          exit 1
         fi
+
+        exit 0
