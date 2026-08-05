@@ -166,6 +166,7 @@ CONFIG_F2FS_FS_ZSTD=n
         self.toolchain_dir = self.workspace / "toolchain"
         self.mkbootimg_dir = self.workspace / "mkbootimg"
         self.lto_fallback_used = False
+        self.detected_respin = None
         self._setup_env()
 
     def _setup_env(self):
@@ -352,6 +353,53 @@ CONFIG_F2FS_FS_ZSTD=n
 
         self._chdir(self.work_dir)
         return result
+
+    def _detect_kernel_respin(self):
+        """Determines which respin (e.g. 'r10') the checked-out
+        kernel/common commit actually corresponds to, so it can be
+        reflected in the final artifact filenames. This matters because
+        the same sub_level/os_patch_level combo can get rebuilt weeks
+        later against a newer respin without any other visible
+        difference in the filename otherwise - users downloading from
+        GitHub currently have no way to tell those two builds apart.
+
+        Works whether the build pinned an explicit --kernel-tag or is
+        tracking the moving branch HEAD: in the latter case, we ask git
+        directly which respin tag(s) point at the commit that actually
+        got checked out, rather than just trusting the request."""
+        common_dir = self.work_dir / "common"
+        if not common_dir.exists():
+            return
+
+        if self.config.kernel_tag:
+            m = re.search(r'_(r\d+)$', self.config.kernel_tag)
+            if m:
+                self.detected_respin = m.group(1)
+                logger.info(f"Kernel respin (from pinned tag): {self.detected_respin}")
+                return
+
+        result = subprocess.run(
+            "git tag --points-at HEAD", shell=True, cwd=common_dir,
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout:
+            pattern = re.compile(
+                rf'^{re.escape(self.config.android_version)}-{re.escape(self.config.kernel_version)}-'
+                rf'{re.escape(self.config.os_patch_level)}_(r\d+)$'
+            )
+            for line in result.stdout.splitlines():
+                m = pattern.match(line.strip())
+                if m:
+                    self.detected_respin = m.group(1)
+                    logger.info(f"Kernel respin (detected from checked-out commit): {self.detected_respin}")
+                    return
+
+        logger.warning("Could not determine kernel respin - artifact filenames will omit it")
+
+    @property
+    def respin_suffix(self) -> str:
+        return f"-{self.detected_respin}" if self.detected_respin else ""
+
 
     def _apply_legacy_fixes(self, remote_branch: str = ""):
         av, kv = self.config.android_version, self.config.kernel_version
@@ -1028,6 +1076,7 @@ CONFIG_F2FS_FS_ZSTD=n
             "GKI Kernel Build Report",
             "=" * 40,
             f"Config:        {self.config.config_name}",
+            f"Kernel respin: {self.detected_respin or '(unknown - could not be determined)'}",
             f"Timestamp:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Build method:  {'Legacy build.sh' if is_legacy else 'Bazel (Kleaf)'}",
             f"LTO mode used: {lto_mode}",
@@ -1238,7 +1287,7 @@ CONFIG_F2FS_FS_ZSTD=n
                 cmd += f" --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level {self.config.os_patch_level}"
             self._run_cmd(cmd, check=False)
             self._run_cmd(f"$AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image {output_file} --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH", check=False)
-            dest = self.work_dir / f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}{self.artifact_suffix}-{output_file}"
+            dest = self.work_dir / f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}{self.artifact_suffix}{self.respin_suffix}-{output_file}"
             self._run_cmd(f"cp {output_file} {dest}", check=False)
             artifacts.append(str(dest))
 
@@ -1255,7 +1304,7 @@ CONFIG_F2FS_FS_ZSTD=n
             image_path = self.work_dir / image_file
             if not image_path.exists():
                 continue
-            zip_name = f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}{self.artifact_suffix}-AnyKernel3{suffix}.zip"
+            zip_name = f"{self.config.android_version}-{self.config.kernel_version}.{self.config.sub_level}-{self.config.os_patch_level}{self.artifact_suffix}-AnyKernel3{self.respin_suffix}{suffix}.zip"
             self._run_cmd(f"cp {image_path} {ak3_dir}/", check=False)
             self._chdir(ak3_dir)
             self._run_cmd(f"zip -r ../{zip_name} ./*", check=False)
@@ -1305,6 +1354,7 @@ CONFIG_F2FS_FS_ZSTD=n
             self.clone_toolchain()
             self.setup_repo_tool()
             self.init_and_sync_kernel()
+            self._detect_kernel_respin()
             self.add_kernel_supatch()
             self.add_kernelsu()
             if self.config.disable_safemode:
