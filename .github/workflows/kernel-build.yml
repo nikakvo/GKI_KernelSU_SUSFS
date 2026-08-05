@@ -209,6 +209,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
         run: |
+          set +e
+          # A notification failure must never mark this job as failed -
+          # the kernel build itself already succeeded by this point.
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::warning::TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret not configured - skipping Telegram notification (the kernel build itself still succeeded)"
+            exit 0
+          fi
           cd ./.github/workflows/scripts
           python3 telegram_notify.py single \
             "${{ github.event.inputs.android_version }}" \
@@ -219,3 +226,7 @@ jobs:
             "${{ github.event.inputs.use_zram }}" \
             "${{ github.event.inputs.use_kpm }}" \
             "../../SHA256SUMS.txt"
+          if [ $? -ne 0 ]; then
+            echo "::warning::Telegram notification failed to send - the kernel build itself still succeeded"
+          fi
+          exit 0
