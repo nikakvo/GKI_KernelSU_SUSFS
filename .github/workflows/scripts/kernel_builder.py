@@ -1197,13 +1197,10 @@ CONFIG_F2FS_FS_ZSTD=y
         else:
             image_source = self.work_dir / "bazel-bin/common/kernel_aarch64"
 
-        for image_name in ["Image", "Image.lz4"]:
+        for image_name in ["Image"]:
             src = image_source / image_name
             if src.exists():
                 self._run_cmd(f"cp {src} {bootimgs_dir}/ && cp {src} {self.work_dir}/", check=False)
-
-        if (self.work_dir / "Image").exists():
-            self._run_cmd("gzip -n -k -f -9 Image", check=False)
 
         if self.config.android_version == "android12":
             self._prepare_android12_boot_images(bootimgs_dir, artifacts)
@@ -1229,10 +1226,10 @@ CONFIG_F2FS_FS_ZSTD=y
 
     def _create_boot_image_variants(self, bootimgs_dir: Path, artifacts: list, has_ramdisk: bool = False):
         self._chdir(bootimgs_dir)
-        if (bootimgs_dir / "Image").exists():
-            self._run_cmd("gzip -n -k -f -9 Image", check=False)
 
-        for kernel_file, output_file in [("Image", "boot.img"), ("Image.gz", "boot-gz.img"), ("Image.lz4", "boot-lz4.img")]:
+        # Only the plain boot.img is packaged/uploaded - boot-gz.img and
+        # boot-lz4.img variants are intentionally not produced.
+        for kernel_file, output_file in [("Image", "boot.img")]:
             kernel_path = bootimgs_dir / kernel_file
             if not kernel_path.exists():
                 continue
@@ -1251,7 +1248,9 @@ CONFIG_F2FS_FS_ZSTD=y
         artifacts = []
         ak3_dir = self.anykernel_dir
 
-        for suffix in ["", "-lz4", "-gz"]:
+        # Only the plain AnyKernel3.zip is packaged/uploaded - the
+        # -lz4/-gz zip variants are intentionally not produced.
+        for suffix in [""]:
             image_file = f"Image{suffix}"
             image_path = self.work_dir / image_file
             if not image_path.exists():
