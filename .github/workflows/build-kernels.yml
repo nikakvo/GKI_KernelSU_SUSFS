@@ -50,6 +50,11 @@ on:
         required: true
         type: boolean
         default: true
+      use_cache:
+        description: 'Use ccache (saves/restores build cache via a "Build Cache" GitHub Release - disable for a fully private run with nothing published, e.g. when make_release is also off)'
+        required: true
+        type: boolean
+        default: true
       make_release:
         description: 'Create GitHub Release'
         required: true
@@ -142,6 +147,7 @@ jobs:
 
       - name: Restore ccache
         id: restore-ccache
+        if: ${{ github.event.inputs.use_cache == 'true' }}
         uses: ./.github/actions/cache-restore
         with:
           cache_path: /home/runner/.ccache
@@ -177,6 +183,7 @@ jobs:
           python3 build.py $ARGS
 
       - name: Save ccache
+        if: ${{ github.event.inputs.use_cache == 'true' }}
         uses: ./.github/actions/cache-save
         with:
           cache_path: /home/runner/.ccache
