@@ -195,16 +195,18 @@ jobs:
         id: prepare-artifacts
         run: |
           mkdir -p artifacts
-          find /tmp/gki-build -name "*.zip" -type f -exec cp {} artifacts/ \;
-          find /tmp/gki-build -name "*.img" -type f -exec cp {} artifacts/ \;
+          find /tmp/gki-build -name "*-AnyKernel3.zip" -type f -exec cp {} artifacts/ \;
+          find /tmp/gki-build -name "*-boot.img" -type f -exec cp {} artifacts/ \;
           if [ -z "$(ls -A artifacts/)" ]; then
             echo "No build artifacts found"
             echo "artifacts_exist=false" >> $GITHUB_OUTPUT
           else
             echo "artifacts_exist=true" >> $GITHUB_OUTPUT
             ls -la artifacts/
-            # Generate SHA256SUMS
-            cd artifacts && sha256sum * > SHA256SUMS.txt && cd ..
+            # Generate SHA256SUMS outside artifacts/ so it's not bundled
+            # into the manually-downloadable per-config zip - it's only
+            # needed for the release job's checksum aggregation below.
+            (cd artifacts && sha256sum *) > SHA256SUMS.txt
           fi
 
       - name: Upload artifacts
@@ -219,8 +221,8 @@ jobs:
         run: |
           mkdir -p build-results
           # Copy SHA256SUMS
-          if [ -f "artifacts/SHA256SUMS.txt" ]; then
-            cp artifacts/SHA256SUMS.txt build-results/${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}.txt
+          if [ -f "SHA256SUMS.txt" ]; then
+            cp SHA256SUMS.txt build-results/${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}.txt
           fi
           # Record build status
           echo "${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}:outcome=${{ job.status }}" >> build-results/status.txt
