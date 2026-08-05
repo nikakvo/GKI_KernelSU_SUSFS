@@ -60,6 +60,11 @@ on:
         required: true
         type: boolean
         default: true
+      release_title:
+        description: 'Release title (optional - e.g. "GKI Kernel SukiSU (40864) and SUSFS v2.2.0". Leave empty to use the default "GKI Kernel <tag>")'
+        required: false
+        type: string
+        default: ''
       send_telegram:
         description: 'Send Telegram notification'
         required: true
@@ -306,7 +311,7 @@ jobs:
         id: create_release
         with:
           tag_name: ${{ needs.prepare.outputs.kernel_version }}
-          name: GKI Kernel ${{ needs.prepare.outputs.kernel_version }}
+          name: ${{ github.event.inputs.release_title != '' && github.event.inputs.release_title || format('GKI Kernel {0}', needs.prepare.outputs.kernel_version) }}
           draft: false
           generate_release_notes: false
           files: |
