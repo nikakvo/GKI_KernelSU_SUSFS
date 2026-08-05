@@ -129,24 +129,24 @@ CONFIG_PSI=y
 # Compiles BFQ in and makes it selectable/available - does not by
 # itself change the active scheduler at boot. Check/set at runtime via
 # /sys/block/<dev>/queue/scheduler.
-CONFIG_IOSCHED_BFQ=n
-CONFIG_BFQ_GROUP_IOSCHED=n
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
 
 # === KSM (Kernel Samepage Merging) Config ===
 # Compiles KSM in and makes it available - scanning/merging is off by
 # default at boot (standard upstream behavior) and must be started at
 # runtime via /sys/kernel/mm/ksm/run.
-CONFIG_KSM=n
+CONFIG_KSM=y
 
 # === F2FS Transparent Compression Config ===
 # Compiles compression support into the F2FS driver - whether any given
 # mount actually compresses files depends on fstab mount options
 # (compress_extension) set by the vendor partition, which this kernel
 # does not control.
-CONFIG_F2FS_FS_COMPRESSION=n
-CONFIG_F2FS_FS_LZ4=n
-CONFIG_F2FS_FS_LZ4HC=n
-CONFIG_F2FS_FS_ZSTD=n
+CONFIG_F2FS_FS_COMPRESSION=y
+CONFIG_F2FS_FS_LZ4=y
+CONFIG_F2FS_FS_LZ4HC=y
+CONFIG_F2FS_FS_ZSTD=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -364,9 +364,13 @@ CONFIG_F2FS_FS_ZSTD=n
         GitHub currently have no way to tell those two builds apart.
 
         Works whether the build pinned an explicit --kernel-tag or is
-        tracking the moving branch HEAD: in the latter case, we ask git
-        directly which respin tag(s) point at the commit that actually
-        got checked out, rather than just trusting the request."""
+        tracking the moving branch HEAD. For the latter case, local git
+        tags are NOT available here (init_and_sync_kernel() runs repo
+        sync with --no-tags for speed), so instead we ask the *remote*
+        directly which respin tag(s) exist for this exact android/
+        kernel/os_patch_level combo, and compare their commit SHAs
+        against our checked-out HEAD - a single narrow ls-remote query,
+        not a full tag fetch."""
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
             return
@@ -378,21 +382,47 @@ CONFIG_F2FS_FS_ZSTD=n
                 logger.info(f"Kernel respin (from pinned tag): {self.detected_respin}")
                 return
 
-        result = subprocess.run(
-            "git tag --points-at HEAD", shell=True, cwd=common_dir,
+        head_result = subprocess.run(
+            "git rev-parse HEAD", shell=True, cwd=common_dir,
             capture_output=True, text=True
         )
-        if result.returncode == 0 and result.stdout:
-            pattern = re.compile(
-                rf'^{re.escape(self.config.android_version)}-{re.escape(self.config.kernel_version)}-'
-                rf'{re.escape(self.config.os_patch_level)}_(r\d+)$'
-            )
-            for line in result.stdout.splitlines():
-                m = pattern.match(line.strip())
-                if m:
-                    self.detected_respin = m.group(1)
-                    logger.info(f"Kernel respin (detected from checked-out commit): {self.detected_respin}")
-                    return
+        if head_result.returncode != 0 or not head_result.stdout.strip():
+            logger.warning("Could not determine kernel respin - artifact filenames will omit it")
+            return
+        head_sha = head_result.stdout.strip()
+
+        tag_prefix = f"{self.config.android_version}-{self.config.kernel_version}-{self.config.os_patch_level}_r"
+        ls_result = subprocess.run(
+            f"git ls-remote --tags https://android.googlesource.com/kernel/common '{tag_prefix}*'",
+            shell=True, capture_output=True, text=True, timeout=30
+        )
+        if ls_result.returncode == 0 and ls_result.stdout:
+            # Build tag -> commit SHA, preferring the dereferenced
+            # (^{}) line when present (the true commit for annotated
+            # tags), falling back to the plain line for lightweight tags.
+            tag_shas = {}
+            for line in ls_result.stdout.splitlines():
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    continue
+                sha, ref = parts
+                prefix = "refs/tags/"
+                if not ref.startswith(prefix + tag_prefix):
+                    continue
+                name = ref[len(prefix):]
+                is_deref = name.endswith("^{}")
+                if is_deref:
+                    name = name[:-3]
+                if is_deref or name not in tag_shas:
+                    tag_shas[name] = sha
+
+            for name, sha in tag_shas.items():
+                if sha == head_sha:
+                    m = re.match(rf'^{re.escape(tag_prefix)}(\d+)$', name)
+                    if m:
+                        self.detected_respin = f"r{m.group(1)}"
+                        logger.info(f"Kernel respin (matched via remote tag lookup): {self.detected_respin}")
+                        return
 
         logger.warning("Could not determine kernel respin - artifact filenames will omit it")
 
