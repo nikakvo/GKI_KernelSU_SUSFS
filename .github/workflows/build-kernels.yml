@@ -327,7 +327,7 @@ jobs:
           echo "Release URL: $RELEASE_URL"
 
       - name: Send Telegram Notification
-        if: ${{ github.event.inputs.send_telegram == 'false' }}
+        if: ${{ github.event.inputs.send_telegram == 'true' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -335,6 +335,15 @@ jobs:
           SUCCESS: ${{ steps.prepare-summary.outputs.success }}
           FAILED: ${{ steps.prepare-summary.outputs.failed }}
         run: |
+          set +e
+          # A notification failure (missing secrets, Telegram API hiccup,
+          # etc.) must never mark this job as failed - the release itself
+          # already succeeded by this point, which is what actually matters.
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::warning::TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret not configured - skipping Telegram notification (the release itself was still created successfully)"
+            exit 0
+          fi
+
           # Check if there is any successful build
           if [ "$SUCCESS" -gt 0 ]; then
             python3 ${{ env.SCRIPTS_DIR }}/telegram_notify.py release \
@@ -355,3 +364,8 @@ jobs:
               "0" \
               "${{ steps.prepare-summary.outputs.total }}"
           fi
+
+          if [ $? -ne 0 ]; then
+            echo "::warning::Telegram notification failed to send - the release itself was still created successfully"
+          fi
+          exit 0
