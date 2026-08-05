@@ -54,7 +54,7 @@ on:
         description: 'Use ccache (saves/restores build cache via a "Build Cache" GitHub Release - disable for a fully private run with nothing published, e.g. when make_release is also off)'
         required: true
         type: boolean
-        default: true
+        default: false
       make_release:
         description: 'Create GitHub Release'
         required: true
@@ -69,7 +69,7 @@ on:
         description: 'Send Telegram notification'
         required: true
         type: boolean
-        default: true
+        default: false
 
 env:
   PYTHON_VERSION: '3.10'
