@@ -44,7 +44,8 @@ class ReleaseGenerator:
 - Manual Syscall Hooks
 - Magic Mount Support
 - BBR v1 Support
-- LZ4KD Support
+- ZRAM Support
+- LZ4KD Compression Support
 - MGLRU Support (Multi-Gen LRU, enabled by default)
 - PSI Support (Pressure Stall Information)
 - IP Set Support (netfilter IP/network grouping)
