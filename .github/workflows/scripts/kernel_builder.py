@@ -142,7 +142,6 @@ CONFIG_PSI=y
         self.kernel_patches_dir = self.workspace / "kernel_patches"
         self.toolchain_dir = self.workspace / "toolchain"
         self.mkbootimg_dir = self.workspace / "mkbootimg"
-        self.lto_fallback_used = False
         self.detected_respin = None
         self._setup_env()
 
@@ -1054,29 +1053,12 @@ CONFIG_PSI=y
             else:
                 logger.warning("savedefconfig did not produce an output file, leaving gki_defconfig as-is")
 
-    # Known LLVM/clang verifier bug seen on some GKI branches (currently
-    # android15-6.6 and up): ThinLTO + debug info trips over
-    # sanitizer-inserted calls (e.g. __asan_handle_no_return) that are
-    # missing !dbg metadata, and the module verifier aborts the build
-    # with "Broken module found". This is an upstream Google/AOSP
-    # toolchain regression tied to the clang prebuilt bundled with that
-    # branch - not something this build pipeline introduces. We detect
-    # it and transparently retry the same build with LTO=none.
-    _LTO_VERIFIER_BUG_MARKERS = (
-        "must have a !dbg location",
-        "Broken module found, compilation aborted",
-    )
-
-    def _looks_like_lto_verifier_bug(self, output: str) -> bool:
-        return all(marker in output for marker in self._LTO_VERIFIER_BUG_MARKERS)
-
     @property
     def artifact_suffix(self) -> str:
-        """Appended to artifact filenames when the ThinLTO fallback kicked
-        in, so it's visible at a glance in the workspace/release listing
-        which builds are running without GKI-standard ThinLTO trimming -
-        no need to dig through the build log to find out."""
-        return "-noLTO" if self.lto_fallback_used else ""
+        """LTO is always thin - no fallback mode exists anymore, so this
+        is kept only so callers referencing it (prepare_boot_images,
+        create_anykernel_zips) don't need to change."""
+        return ""
 
     def _run_build_command(self, cmd: str) -> tuple:
         """Runs a (potentially very long) build command. Streams output
@@ -1102,11 +1084,10 @@ CONFIG_PSI=y
         except RuntimeError:
             return False, "\n".join(lines)
 
-    def _write_build_report(self, lto_mode: str, fallback_used: bool, success: bool, build_seconds: float, is_legacy: bool):
+    def _write_build_report(self, success: bool, build_seconds: float, is_legacy: bool):
         """Writes a short, human-readable summary of how this kernel was
-        actually built (build method, LTO mode, whether the ThinLTO
-        fallback kicked in) - so this doesn't have to be dug out of the
-        full build log."""
+        actually built - so this doesn't have to be dug out of the full
+        build log."""
         from datetime import datetime
         report_path = self.work_dir / "BUILD_REPORT.txt"
         lines = [
@@ -1116,22 +1097,10 @@ CONFIG_PSI=y
             f"Kernel respin: {self.detected_respin or '(unknown - could not be determined)'}",
             f"Timestamp:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Build method:  {'Legacy build.sh' if is_legacy else 'Bazel (Kleaf)'}",
-            f"LTO mode used: {lto_mode}",
+            "LTO mode used: thin",
             f"Result:        {'SUCCESS' if success else 'FAILED'}",
             f"Build time:    {build_seconds:.1f}s",
         ]
-        if fallback_used:
-            lines += [
-                "",
-                "NOTE: --lto=thin failed with a known LLVM/clang verifier bug",
-                '(sanitizer-inserted call missing debug-info location, "Broken',
-                'module found, compilation aborted"). This is an upstream',
-                "Google/AOSP toolchain issue on this branch's bundled clang -",
-                "not something in this build pipeline. The kernel was rebuilt",
-                "with LTO=none as a fallback: it is fully functional, but does",
-                "NOT have GKI-standard ThinLTO trimming/optimization like",
-                "Google's official build for this branch.",
-            ]
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         logger.info(f"Build report written to: {report_path}")
 
@@ -1193,14 +1162,12 @@ CONFIG_PSI=y
 
         import time
         start_time = time.time()
-        lto_mode = "thin"
-        fallback_used = False
         is_legacy = (self.work_dir / "build/build.sh").exists()
         bazel_cache = Path.home() / ".cache" / "bazel"
 
-        def _build_cmd(lto: str) -> str:
+        def _build_cmd() -> str:
             if is_legacy:
-                return f"LTO={lto} BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
+                return "LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
             # Building //common:kernel_aarch64/Image directly (instead of
             # the full //common:kernel_aarch64_dist target) matches
             # WildKernels/GKI_KernelSU_SUSFS's own build-kernel action.
@@ -1214,7 +1181,7 @@ CONFIG_PSI=y
             # --nokmi_symbol_list_strict_mode kept as a defensive no-op in
             # case this target still runs that check on some branch.
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
-                    f"--lto={lto} --nokmi_symbol_list_strict_mode "
+                    f"--lto=thin --nokmi_symbol_list_strict_mode "
                     f"--nokmi_symbol_list_violations_check //common:kernel_aarch64/Image")
 
         try:
@@ -1226,23 +1193,13 @@ CONFIG_PSI=y
                 self.remove_protected_exports()
                 bazel_cache.mkdir(parents=True, exist_ok=True)
 
-            success, output = self._run_build_command(_build_cmd(lto_mode))
-
-            if not success and self._looks_like_lto_verifier_bug(output):
-                logger.warning(
-                    "ThinLTO hit a known LLVM verifier bug (missing !dbg on a "
-                    "sanitizer-inserted call, \"Broken module found\") - this "
-                    "is an upstream Google/AOSP clang toolchain issue on this "
-                    "branch, not a problem with this build pipeline. "
-                    "Retrying with LTO=none..."
-                )
-                lto_mode = "none"
-                fallback_used = True
-                self.lto_fallback_used = True
-                success, output = self._run_build_command(_build_cmd(lto_mode))
+            # LTO is always thin. No fallback to LTO=none - if thin fails,
+            # the build fails, full stop. Nobody was going to flash a
+            # noLTO build anyway.
+            success, output = self._run_build_command(_build_cmd())
 
             build_seconds = time.time() - start_time
-            self._write_build_report(lto_mode, fallback_used, success, build_seconds, is_legacy)
+            self._write_build_report(success, build_seconds, is_legacy)
 
             if success:
                 logger.info("=== Kernel compilation succeeded ===")
