@@ -7,7 +7,7 @@ import shutil
 
 
 def is_release_file(filename: str) -> bool:
-    """判断是否为发布文件"""
+    """Determine whether a file is a release file"""
     if not filename.startswith('android'):
         return False
     # android...-boot-gz.img, android...-boot-lz4.img, android...-boot.img, android...-AnyKernel3.zip
@@ -19,7 +19,7 @@ def is_release_file(filename: str) -> bool:
 
 
 def process_artifacts(artifacts_dir: str, output_dir: str, build_results_dir: str = None):
-    """从 artifact zip 中提取发布文件"""
+    """Extract release files from artifact zips"""
     os.makedirs(output_dir, exist_ok=True)
     
     for name in os.listdir(artifacts_dir):
@@ -28,18 +28,18 @@ def process_artifacts(artifacts_dir: str, output_dir: str, build_results_dir: st
         if os.path.isdir(path):
             continue
         
-        # 直接复制符合条件的发布文件
+        # Directly copy files that already qualify as release files
         if is_release_file(name):
             target = os.path.join(output_dir, name)
             shutil.copy2(path, target)
-            print(f"复制: {name}")
+            print(f"Copied: {name}")
             continue
         
-        # 只有 zip 才需要继续解压检查
+        # Only zip files need to be inspected further
         if not name.endswith('.zip'):
             continue
         
-        print(f"解压: {name}")
+        print(f"Extracting: {name}")
         try:
             with zipfile.ZipFile(path, 'r') as zf:
                 for member in zf.namelist():
@@ -52,15 +52,15 @@ def process_artifacts(artifacts_dir: str, output_dir: str, build_results_dir: st
                         target = os.path.join(output_dir, filename)
                         with zf.open(member) as src, open(target, 'wb') as dst:
                             dst.write(src.read())
-                        print(f"  提取: {filename}")
+                        print(f"  Extracted: {filename}")
                     else:
-                        print(f"  跳过: {filename}")
+                        print(f"  Skipped: {filename}")
         except zipfile.BadZipFile:
-            print(f"错误: 无效的 zip 文件 - {name}")
+            print(f"Error: invalid zip file - {name}")
         except Exception as e:
-            print(f"错误: {e}")
+            print(f"Error: {e}")
     
-    # 合并 SHA256SUMS
+    # Merge SHA256SUMS
     if build_results_dir:
         sha256sums = []
         for txt_file in glob.glob(os.path.join(build_results_dir, '*.txt')):
@@ -79,16 +79,16 @@ def process_artifacts(artifacts_dir: str, output_dir: str, build_results_dir: st
             sha256_path = os.path.join(output_dir, 'SHA256SUMS.txt')
             with open(sha256_path, 'w') as f:
                 f.write('\n'.join(sha256sums) + '\n')
-            print(f"生成: SHA256SUMS.txt")
+            print(f"Generated: SHA256SUMS.txt")
     
-    print("完成")
+    print("Done")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="提取发布文件")
-    parser.add_argument("artifacts_dir", help="artifact 目录路径")
-    parser.add_argument("output_dir", help="输出目录路径")
-    parser.add_argument("--build-results", help="build-results 目录路径", default=None)
+    parser = argparse.ArgumentParser(description="Extract release files")
+    parser.add_argument("artifacts_dir", help="Path to the artifacts directory")
+    parser.add_argument("output_dir", help="Path to the output directory")
+    parser.add_argument("--build-results", help="Path to the build-results directory", default=None)
     args = parser.parse_args()
     
     process_artifacts(args.artifacts_dir, args.output_dir, args.build_results)
