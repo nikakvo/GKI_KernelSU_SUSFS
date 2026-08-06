@@ -29,6 +29,8 @@ def generate_build_matrix() -> list:
             }
             if "revision" in cfg:
                 build["revision"] = cfg["revision"]
+            if "kernel_tag" in cfg:
+                build["kernel_tag"] = cfg["kernel_tag"]
             builds.append(build)
 
     # Sort by Android version and kernel version
