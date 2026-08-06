@@ -315,21 +315,32 @@ CONFIG_PSI=y
             f"git fetch --depth=1 https://android.googlesource.com/kernel/common "
             f"refs/tags/{tag}:refs/tags/{tag}", check=False)
         result = self._run_cmd(f"git checkout {tag}", check=False)
-
-        # Write the exact desired release suffix directly into .scmversion.
-        # setlocalversion uses this file's content verbatim instead of
-        # calling `git describe`, giving full, predictable control over the
-        # final kernel release string (e.g. "5.15.194-android13-r10")
-        # regardless of build system (legacy build.sh vs Bazel/Kleaf) - the
-        # separate CONFIG_LOCALVERSION/custom_version mechanisms elsewhere
-        # in this file are gated inconsistently between the two build paths,
-        # so this is the one reliable, universal way to control it.
-        m = re.search(r'_r(\d+)$', tag)
-        respin_suffix = f"-{self.config.android_version}-r{m.group(1)}" if m else ""
-        (common_dir / ".scmversion").write_text(respin_suffix)
-
         self._chdir(self.work_dir)
         return result
+
+    def _write_scmversion(self):
+        """Writes the exact desired release suffix directly into
+        .scmversion. setlocalversion uses this file's content verbatim
+        instead of calling `git describe`, giving full, predictable
+        control over the final kernel release string (e.g.
+        "5.15.194-android13-r10") regardless of build system (legacy
+        build.sh vs Bazel/Kleaf) - the separate CONFIG_LOCALVERSION/
+        custom_version mechanisms elsewhere in this file are gated
+        inconsistently between the two build paths, so this is the one
+        reliable, universal way to control it.
+
+        Runs for every build, not just ones with an explicit
+        --kernel-tag: self.detected_respin is populated by
+        _detect_kernel_respin() either way (pinned tag or a remote
+        lookup against the moving branch HEAD), so a build that just
+        tracks HEAD still gets a clean "-r10"-style suffix instead of
+        git's default raw commit-hash suffix (e.g. "-8-gd37b0095da55")."""
+        common_dir = self.work_dir / "common"
+        if not common_dir.exists() or not self.detected_respin:
+            return
+        respin_suffix = f"-{self.config.android_version}-{self.detected_respin}"
+        (common_dir / ".scmversion").write_text(respin_suffix)
+        logger.info(f".scmversion written: {respin_suffix}")
 
     def _detect_kernel_respin(self):
         """Determines which respin (e.g. 'r10') the checked-out
@@ -1381,6 +1392,7 @@ CONFIG_PSI=y
             self.setup_repo_tool()
             self.init_and_sync_kernel()
             self._detect_kernel_respin()
+            self._write_scmversion()
             self.add_kernel_supatch()
             self.add_kernelsu()
             if self.config.disable_safemode:
