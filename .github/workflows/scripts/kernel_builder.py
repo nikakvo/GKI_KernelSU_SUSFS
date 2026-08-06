@@ -124,29 +124,6 @@ CONFIG_LRU_GEN_ENABLED=y
 
 # === PSI (Pressure Stall Information) Config ===
 CONFIG_PSI=y
-
-# === BFQ I/O Scheduler Config ===
-# Compiles BFQ in and makes it selectable/available - does not by
-# itself change the active scheduler at boot. Check/set at runtime via
-# /sys/block/<dev>/queue/scheduler.
-CONFIG_IOSCHED_BFQ=n
-CONFIG_BFQ_GROUP_IOSCHED=n
-
-# === KSM (Kernel Samepage Merging) Config ===
-# Compiles KSM in and makes it available - scanning/merging is off by
-# default at boot (standard upstream behavior) and must be started at
-# runtime via /sys/kernel/mm/ksm/run.
-CONFIG_KSM=n
-
-# === F2FS Transparent Compression Config ===
-# Compiles compression support into the F2FS driver - whether any given
-# mount actually compresses files depends on fstab mount options
-# (compress_extension) set by the vendor partition, which this kernel
-# does not control.
-CONFIG_F2FS_FS_COMPRESSION=n
-CONFIG_F2FS_FS_LZ4=n
-CONFIG_F2FS_FS_LZ4HC=n
-CONFIG_F2FS_FS_ZSTD=n
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -826,6 +803,25 @@ CONFIG_F2FS_FS_ZSTD=n
         if self.config.use_zram:
             self._configure_zram()
             self._configure_bazel()
+
+        if self.config.enable_bfq:
+            with open(config_file, "a") as f:
+                f.write("# === BFQ I/O Scheduler Config ===\n")
+                f.write("CONFIG_IOSCHED_BFQ=y\n")
+                f.write("CONFIG_BFQ_GROUP_IOSCHED=y\n")
+
+        if self.config.enable_ksm:
+            with open(config_file, "a") as f:
+                f.write("# === KSM (Kernel Samepage Merging) Config ===\n")
+                f.write("CONFIG_KSM=y\n")
+
+        if self.config.enable_f2fs_compression:
+            with open(config_file, "a") as f:
+                f.write("# === F2FS Transparent Compression Config ===\n")
+                f.write("CONFIG_F2FS_FS_COMPRESSION=y\n")
+                f.write("CONFIG_F2FS_FS_LZ4=y\n")
+                f.write("CONFIG_F2FS_FS_LZ4HC=y\n")
+                f.write("CONFIG_F2FS_FS_ZSTD=y\n")
 
         if self.config.bbr_version == "bbr1":
             with open(config_file, "a") as f:
