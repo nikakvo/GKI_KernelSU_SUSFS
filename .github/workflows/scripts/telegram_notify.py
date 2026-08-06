@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Telegram 通知脚本
-用于发送构建完成/发布通知到 Telegram
+Telegram notification script
+Used to send build-completion / release notifications to Telegram
 """
 import os
 import sys
@@ -23,9 +23,9 @@ class TelegramNotifier:
         self.ssl_ctx.verify_mode = ssl.CERT_NONE
 
     def send_message(self, message: str, parse_mode: str = "HTML", disable_web_page_preview: bool = True) -> bool:
-        """发送消息到 Telegram"""
+        """Send a message to Telegram"""
         if not self.bot_token or not self.chat_id:
-            print("错误: 缺少 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID")
+            print("Error: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
             return False
 
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
@@ -49,23 +49,23 @@ class TelegramNotifier:
             with urllib.request.urlopen(req, context=self.ssl_ctx) as response:
                 result = json.loads(response.read())
                 if result.get("ok"):
-                    print(f"消息发送成功 (message_id: {result['result']['message_id']})")
+                    print(f"Message sent successfully (message_id: {result['result']['message_id']})")
                     return True
                 else:
-                    print(f"发送失败: {result.get('description')}")
+                    print(f"Send failed: {result.get('description')}")
                     return False
         except Exception as e:
-            print(f"请求失败: {e}")
+            print(f"Request failed: {e}")
             return False
 
     def send_document(self, file_path: str, caption: str = None) -> bool:
-        """发送文件到 Telegram"""
+        """Send a file to Telegram"""
         if not self.bot_token or not self.chat_id:
-            print("错误: 缺少 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID")
+            print("Error: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
             return False
 
         if not os.path.exists(file_path):
-            print(f"文件不存在: {file_path}")
+            print(f"File does not exist: {file_path}")
             return False
 
         url = f"https://api.telegram.org/bot{self.bot_token}/sendDocument"
@@ -91,21 +91,21 @@ class TelegramNotifier:
                 with urllib.request.urlopen(req, context=self.ssl_ctx) as response:
                     result = json.loads(response.read())
                     if result.get("ok"):
-                        print(f"文件发送成功 (message_id: {result['result']['message_id']})")
+                        print(f"File sent successfully (message_id: {result['result']['message_id']})")
                         return True
                     else:
-                        print(f"文件发送失败: {result.get('description')}")
+                        print(f"File send failed: {result.get('description')}")
                         return False
         except ImportError:
-            print("需要安装 multipart 库: pip install python-multipart")
+            print("Requires the multipart library: pip install python-multipart")
             return False
         except Exception as e:
-            print(f"文件发送失败: {e}")
+            print(f"File send failed: {e}")
             return False
 
 
 def calculate_file_hashes(file_path: str) -> dict:
-    """计算文件的 SHA256 和 MD5 hash"""
+    """Calculate the SHA256 and MD5 hash of a file"""
     hashes = {"sha256": "", "md5": ""}
     try:
         sha256_hash = hashlib.sha256()
@@ -117,12 +117,12 @@ def calculate_file_hashes(file_path: str) -> dict:
         hashes["sha256"] = sha256_hash.hexdigest()
         hashes["md5"] = md5_hash.hexdigest()
     except Exception as e:
-        print(f"计算 hash 失败: {e}")
+        print(f"Hash calculation failed: {e}")
     return hashes
 
 
 def parse_sha256sums(file_path: str) -> list:
-    """解析 SHA256SUMS 文件"""
+    """Parse a SHA256SUMS file"""
     files = []
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
@@ -147,23 +147,23 @@ def build_single_notify_message(
     use_kpm: bool,
     hashes_file: str = None,
 ) -> str:
-    """生成单版本构建完成通知消息"""
-    message = f"""✅ <b>内核构建成功</b>
+    """Build the notification message for a single completed build"""
+    message = f"""✅ <b>Kernel build succeeded</b>
 
 <b>📱 Android:</b> {android_version}
 <b>🔧 Kernel:</b> {kernel_version}
 <b>📌 Sub Level:</b> {sub_level}
 <b>📅 OS Patch:</b> {os_patch_level}
 
-<b>💾 SukiSU 版本:</b> {kernelsu_version}
-<b>🔧 ZRAM:</b> {"启用" if use_zram else "禁用"}
-<b>📦 KPM:</b> {"启用" if use_kpm else "禁用"}"""
+<b>💾 SukiSU version:</b> {kernelsu_version}
+<b>🔧 ZRAM:</b> {"Enabled" if use_zram else "Disabled"}
+<b>📦 KPM:</b> {"Enabled" if use_kpm else "Disabled"}"""
 
-    # 添加文件 hash 信息
+    # Append file hash info
     if hashes_file and os.path.exists(hashes_file):
         files = parse_sha256sums(hashes_file)
         if files:
-            message += "\n\n<b>📋 文件校验 (SHA256):</b>"
+            message += "\n\n<b>📋 File checksums (SHA256):</b>"
             for file_info in files:
                 filename = os.path.basename(file_info["filename"])
                 file_hash = file_info["hash"]
@@ -182,13 +182,13 @@ def build_release_notify_message(
     success_count: str = None,
     failed_count: str = None,
 ) -> str:
-    """生成新版本发布通知消息"""
-    message = f"""🎉 <b>构建完成!</b>
+    """Build the notification message for a new release"""
+    message = f"""🎉 <b>Build complete!</b>
 
-📦 <b>版本:</b> {release_tag}
-🔗 <b>下载:</b> <a href="{release_url}">点击下载</a>"""
+📦 <b>Version:</b> {release_tag}
+🔗 <b>Download:</b> <a href="{release_url}">Click to download</a>"""
 
-    # 添加构建统计
+    # Append build statistics
     success = int(success_count) if success_count and success_count.isdigit() else 0
     failed = int(failed_count) if failed_count and failed_count.isdigit() else 0
     total = success + failed
@@ -197,22 +197,22 @@ def build_release_notify_message(
         success_emoji = "✅" if success == total else "⚠️"
         message += f"""
 
-{success_emoji} <b>构建统计:</b>
-✅ 成功: {success}/{total}
-❌ 失败: {failed}/{total}"""
+{success_emoji} <b>Build stats:</b>
+✅ Succeeded: {success}/{total}
+❌ Failed: {failed}/{total}"""
 
-    # 添加完整的发布说明
+    # Append the full release notes
     if release_notes:
         message += f"""
 
-📝 <b>更新内容:</b>
+📝 <b>Changelog:</b>
 {release_notes}"""
 
-    # 添加文件 hash 信息
+    # Append file hash info
     if hashes_file and os.path.exists(hashes_file):
         files = parse_sha256sums(hashes_file)
         if files:
-            message += "\n\n<b>📋 文件校验 (SHA256):</b>"
+            message += "\n\n<b>📋 File checksums (SHA256):</b>"
             for file_info in files:
                 filename = os.path.basename(file_info["filename"])
                 file_hash = file_info["hash"]
@@ -224,7 +224,7 @@ def build_release_notify_message(
 
 def main():
     if len(sys.argv) < 2:
-        print("用法:")
+        print("Usage:")
         print("  python telegram_notify.py single <android> <kernel> <sub_level> <os_patch> <ksu_version> <zram> <kpm> [hashes_file]")
         print("  python telegram_notify.py release <tag> <url> [notes_file] [hashes_file]")
         sys.exit(1)
@@ -234,7 +234,7 @@ def main():
 
     if action == "single":
         if len(sys.argv) < 8:
-            print("错误: single 需要 7 个参数")
+            print("Error: 'single' requires 7 arguments")
             sys.exit(1)
 
         hashes_file = sys.argv[8] if len(sys.argv) > 8 else None
@@ -258,7 +258,7 @@ def main():
 
     elif action == "release":
         if len(sys.argv) < 4:
-            print("错误: release 需要 <tag> <url> [notes_file] [hashes_file] [status_file] [success_count] [failed_count]")
+            print("Error: 'release' requires <tag> <url> [notes_file] [hashes_file] [status_file] [success_count] [failed_count]")
             sys.exit(1)
 
         tag = sys.argv[2]
@@ -269,7 +269,7 @@ def main():
         success_count = None
         failed_count = None
 
-        # 解析可选参数
+        # Parse optional arguments
         for arg in sys.argv[4:]:
             if os.path.exists(arg):
                 if arg.endswith(".md"):
@@ -293,7 +293,7 @@ def main():
             notifier.send_document(hashes_file, "SHA256SUMS")
 
     else:
-        print(f"未知操作: {action}")
+        print(f"Unknown action: {action}")
         sys.exit(1)
 
     sys.exit(0 if success else 1)
