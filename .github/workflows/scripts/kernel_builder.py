@@ -129,24 +129,24 @@ CONFIG_PSI=y
 # Compiles BFQ in and makes it selectable/available - does not by
 # itself change the active scheduler at boot. Check/set at runtime via
 # /sys/block/<dev>/queue/scheduler.
-CONFIG_IOSCHED_BFQ=y
-CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_IOSCHED_BFQ=n
+CONFIG_BFQ_GROUP_IOSCHED=n
 
 # === KSM (Kernel Samepage Merging) Config ===
 # Compiles KSM in and makes it available - scanning/merging is off by
 # default at boot (standard upstream behavior) and must be started at
 # runtime via /sys/kernel/mm/ksm/run.
-CONFIG_KSM=y
+CONFIG_KSM=n
 
 # === F2FS Transparent Compression Config ===
 # Compiles compression support into the F2FS driver - whether any given
 # mount actually compresses files depends on fstab mount options
 # (compress_extension) set by the vendor partition, which this kernel
 # does not control.
-CONFIG_F2FS_FS_COMPRESSION=y
-CONFIG_F2FS_FS_LZ4=y
-CONFIG_F2FS_FS_LZ4HC=y
-CONFIG_F2FS_FS_ZSTD=y
+CONFIG_F2FS_FS_COMPRESSION=n
+CONFIG_F2FS_FS_LZ4=n
+CONFIG_F2FS_FS_LZ4HC=n
+CONFIG_F2FS_FS_ZSTD=n
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
