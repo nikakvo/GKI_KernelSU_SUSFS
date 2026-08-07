@@ -85,8 +85,18 @@ on:
         required: true
         type: boolean
         default: false
+      enable_bfq:
+        description: 'Enable BFQ I/O scheduler'
+        required: true
+        type: boolean
+        default: false
       enable_ksm:
         description: 'Enable KSM (Kernel Samepage Merging)'
+        required: true
+        type: boolean
+        default: false
+      enable_f2fs_compression:
+        description: 'Enable F2FS transparent compression support'
         required: true
         type: boolean
         default: false
@@ -181,7 +191,9 @@ jobs:
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
           [ "${{ github.event.inputs.supp_op }}" = "true" ] && ARGS="$ARGS --op8e"
+          [ "${{ github.event.inputs.enable_bfq }}" = "true" ] && ARGS="$ARGS --bfq"
           [ "${{ github.event.inputs.enable_ksm }}" = "true" ] && ARGS="$ARGS --ksm"
+          [ "${{ github.event.inputs.enable_f2fs_compression }}" = "true" ] && ARGS="$ARGS --f2fs-compression"
           ARGS="$ARGS --bbr-version ${{ github.event.inputs.bbr_version }}"
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
