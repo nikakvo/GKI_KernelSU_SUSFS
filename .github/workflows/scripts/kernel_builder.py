@@ -125,6 +125,10 @@ CONFIG_LRU_GEN_ENABLED=y
 # === PSI (Pressure Stall Information) Config ===
 CONFIG_PSI=y
 
+# === Wireguard Config (forced on regardless of the branch's own
+# gki_defconfig default, since not every branch ships it enabled) ===
+CONFIG_WIREGUARD=y
+
 # === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===
 CONFIG_NTSYNC=y
 """
