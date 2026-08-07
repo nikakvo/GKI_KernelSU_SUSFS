@@ -43,9 +43,9 @@ LOGFILE="$HOME/build-$(date +%Y%m%d-%H%M%S).log"
 # ---- Default values ----
 ANDROID_VERSION="android13"
 KERNEL_VERSION="5.15"
-SUB_LEVEL="194"
-OS_PATCH="2025-12"
-KERNEL_TAG="android13-5.15-2025-12_r10"
+SUB_LEVEL="206"
+OS_PATCH="2026-06"
+KERNEL_TAG="android13-5.15-2026-06_r4"
 
 # ============================================================
 #  Dependency check / auto-install
@@ -100,7 +100,7 @@ check_dependencies
 echo "========================================"
 echo "  GKI KernelSU SUSFS - Build Menu"
 echo "========================================"
-echo "1) Default (android13 / 5.15 / 194 / 2025-12)"
+echo "1) Default (android13 / 5.15 / 206 / 2026-06)"
 echo "2) Custom (choose your own versions)"
 echo "3) All versions from matrix.json"
 echo "========================================"
@@ -210,10 +210,10 @@ if [ "$BUILD_OPTION" == "2" ]; then
 
     read -rp "Android Version (e.g. android13): " ANDROID_VERSION
     read -rp "Kernel Version (e.g. 5.15): " KERNEL_VERSION
-    read -rp "Sublevel (e.g. 178): " SUB_LEVEL
-    read -rp "Security Patch Level (e.g. 2025-03): " OS_PATCH
+    read -rp "Sublevel (e.g. 206): " SUB_LEVEL
+    read -rp "Security Patch Level (e.g. 2026-06): " OS_PATCH
     echo ""
-    echo "Check the exact respin tag here (optional, e.g. android13-5.15-2025-12_r10):"
+    echo "Check the exact respin tag here (optional, e.g. android13-5.15-2026-06_r4):"
     echo "https://android.googlesource.com/kernel/common/+refs"
     read -rp "Kernel Tag (Enter to skip - uses the branch's latest HEAD): " KERNEL_TAG
 
