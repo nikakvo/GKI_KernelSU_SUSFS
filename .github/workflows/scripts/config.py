@@ -115,9 +115,7 @@ class BuildConfig:
     use_kpm: bool = True
     use_bbg: bool = False
     support_op8e: bool = False
-    enable_bfq: bool = False
     enable_ksm: bool = False
-    enable_f2fs_compression: bool = False
     bbr_version: str = "bbr1"
     make_release: bool = True
     custom_version: Optional[str] = None
@@ -196,9 +194,7 @@ class BuildConfig:
             "use_kpm": self.use_kpm,
             "use_bbg": self.use_bbg,
             "support_op8e": self.support_op8e,
-            "enable_bfq": self.enable_bfq,
             "enable_ksm": self.enable_ksm,
-            "enable_f2fs_compression": self.enable_f2fs_compression,
             "bbr_version": self.bbr_version,
             "make_release": self.make_release,
             "custom_version": self.custom_version,
