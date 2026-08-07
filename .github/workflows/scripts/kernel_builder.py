@@ -874,24 +874,10 @@ CONFIG_NTSYNC=y
             self._configure_zram()
             self._configure_bazel()
 
-        if self.config.enable_bfq:
-            with open(config_file, "a") as f:
-                f.write("# === BFQ I/O Scheduler Config ===\n")
-                f.write("CONFIG_IOSCHED_BFQ=y\n")
-                f.write("CONFIG_BFQ_GROUP_IOSCHED=y\n")
-
         if self.config.enable_ksm:
             with open(config_file, "a") as f:
                 f.write("# === KSM (Kernel Samepage Merging) Config ===\n")
                 f.write("CONFIG_KSM=y\n")
-
-        if self.config.enable_f2fs_compression:
-            with open(config_file, "a") as f:
-                f.write("# === F2FS Transparent Compression Config ===\n")
-                f.write("CONFIG_F2FS_FS_COMPRESSION=y\n")
-                f.write("CONFIG_F2FS_FS_LZ4=y\n")
-                f.write("CONFIG_F2FS_FS_LZ4HC=y\n")
-                f.write("CONFIG_F2FS_FS_ZSTD=y\n")
 
         if self.config.bbr_version == "bbr1":
             with open(config_file, "a") as f:
