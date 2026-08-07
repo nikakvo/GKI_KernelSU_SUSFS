@@ -44,7 +44,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-kpm", action="store_true")
     parser.add_argument("--bbg", action="store_true")
     parser.add_argument("--op8e", action="store_true")
+    parser.add_argument("--bfq", action="store_true", help="Enable BFQ I/O scheduler")
     parser.add_argument("--ksm", action="store_true", help="Enable KSM (Kernel Samepage Merging)")
+    parser.add_argument("--f2fs-compression", action="store_true", help="Enable F2FS transparent compression support")
     parser.add_argument("--bbr-version", choices=["none", "bbr1", "bbr3"], default="bbr1")
     parser.add_argument("--no-release", action="store_true")
     parser.add_argument("--custom-version", dest="custom_version", default=None)
@@ -77,7 +79,9 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         use_kpm=not args.no_kpm,
         use_bbg=args.bbg,
         support_op8e=args.op8e,
+        enable_bfq=args.bfq,
         enable_ksm=args.ksm,
+        enable_f2fs_compression=args.f2fs_compression,
         bbr_version=args.bbr_version,
         make_release=not args.no_release,
         custom_version=args.custom_version,
