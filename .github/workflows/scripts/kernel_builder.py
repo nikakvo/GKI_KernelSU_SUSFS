@@ -124,6 +124,9 @@ CONFIG_LRU_GEN_ENABLED=y
 
 # === PSI (Pressure Stall Information) Config ===
 CONFIG_PSI=y
+
+# === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===
+CONFIG_NTSYNC=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -460,6 +463,63 @@ CONFIG_PSI=y
                 self._chdir(ksu_dir)
                 self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
                 self._chdir(self.work_dir)
+
+    # Upstream Linux changed ptrace_notify()'s signature in 5.16 to pass
+    # the event message as an explicit argument instead of stashing it in
+    # current->ptrace_message before the tracer is actually notified -
+    # closing a race where that field (e.g. a forked child's PID) is
+    # briefly visible to other readers before/after the real notify.
+    # Kernels below 5.16 (5.10, 5.15) don't have this fix upstream, so we
+    # backport it here. This is a no-op skip - not a failure - on kernels
+    # that already have it natively.
+    def apply_ptrace_leak_fix(self):
+        if self.config.kernel_version not in ("5.10", "5.15"):
+            logger.info("Skipping ptrace leak fix - already upstream on this kernel version")
+            return
+        logger.info("=== Applying ptrace leak fix (kernels < 5.16) ===")
+        patch_file = Path(__file__).parent / "patches" / "gki_ptrace.patch"
+        if not patch_file.exists():
+            logger.warning(f"ptrace leak fix patch not found at {patch_file} - skipping")
+            return
+        common_dir = self.work_dir / "common"
+        self._chdir(common_dir)
+        result = self._run_cmd(f"patch -p1 -F 3 < {patch_file}", check=False)
+        self._chdir(self.work_dir)
+        if result.returncode != 0:
+            logger.warning(
+                "ptrace leak fix did not apply cleanly - kernel source may "
+                "have diverged from what this patch expects, continuing "
+                "without it"
+            )
+
+    # NTSync (drivers/misc/ntsync.c) emulates Windows NT synchronization
+    # primitives in-kernel - useful for Winlator/Wine. It's mainline as of
+    # Linux 6.14, so this backports it via two patches from kernel_patches:
+    # a base driver patch (same for every branch) plus a small per-branch
+    # compat patch that wires it into that branch's Kconfig/Makefile.
+    # Skips (doesn't fail the build) if no compat patch exists yet for
+    # this specific android/kernel combo.
+    def apply_ntsync_patches(self):
+        logger.info("=== Applying NTSync driver patches ===")
+        patches_dir = Path(__file__).parent / "patches"
+        base_patch = patches_dir / "ntsync_base.patch"
+        compat_patch = patches_dir / f"ntsync_compat_{self.config.android_version}-{self.config.kernel_version}.patch"
+        if not base_patch.exists() or not compat_patch.exists():
+            logger.warning(
+                f"NTSync patches not found for "
+                f"{self.config.android_version}-{self.config.kernel_version} "
+                f"(looked for {compat_patch.name}) - skipping"
+            )
+            return
+        common_dir = self.work_dir / "common"
+        self._chdir(common_dir)
+        for patch_file, label in [(base_patch, "driver source"), (compat_patch, "Kconfig/Makefile wiring")]:
+            result = self._run_cmd(f"patch -p1 -F 3 < {patch_file}", check=False)
+            if result.returncode != 0:
+                logger.warning(f"NTSync {label} patch failed to apply cleanly - continuing without NTSync")
+                self._chdir(self.work_dir)
+                return
+        self._chdir(self.work_dir)
 
     def add_bbg(self):
         if not self.config.use_bbg:
@@ -1350,6 +1410,8 @@ CONFIG_PSI=y
             self.init_and_sync_kernel()
             self._detect_kernel_respin()
             self._write_scmversion()
+            self.apply_ptrace_leak_fix()
+            self.apply_ntsync_patches()
             self.add_kernel_supatch()
             self.add_kernelsu()
             if self.config.disable_safemode:
