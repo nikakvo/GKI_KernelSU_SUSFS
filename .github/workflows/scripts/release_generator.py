@@ -40,7 +40,7 @@ class ReleaseGenerator:
 
     def generate_body(self) -> str:
         return f"""## Features
-- SUSFS v2.2.0
+- SUSFS {KERNEL_VERSION}
 - Manual Syscall Hooks
 - Magic Mount Support
 - BBR v1 Support
@@ -51,13 +51,11 @@ class ReleaseGenerator:
 - IP Set Support (netfilter IP/network grouping)
 - CAKE Queue Discipline Support
 - Wireguard Support
-- NTSync Support (Winlator/Wine NT synchronization primitives)
-- Ptrace Leak Fix (kernels < 5.16)
 - Safe Mode Permanently Disabled
 
 ## Detailed explanation
 
-- **SUSFS v2.2.0** — Addon for hiding root using kernel-level patches combined with a userspace module (hides suspicious paths, mount points, spoofs kernel stats/uname/cmdline, and more).
+- **SUSFS {KERNEL_VERSION}** — Addon for hiding root using kernel-level patches combined with a userspace module (hides suspicious paths, mount points, spoofs kernel stats/uname/cmdline, and more).
 
 - **Manual Syscall Hooks** — Low-level syscall interception method used for root management and detection evasion, offering finer control than standard hooking approaches.
 
@@ -105,17 +103,7 @@ class ReleaseGenerator:
   ```
   Active if it shows `CONFIG_WIREGUARD=y`.
 
-- **NTSync Support (Winlator/Wine NT synchronization primitives)** — Kernel-level driver (`/dev/ntsync`) emulating Windows NT synchronization primitives (semaphores, mutexes, events) natively, instead of userspace emulation over futex. Improves compatibility and reduces overhead for Wine-based Windows app/game layers such as Winlator. Only available on branches with a compatible backport for that specific kernel version — not every branch/sub_level is guaranteed to have it.
-  ```
-  su -c ls -la /dev/ntsync
-  su -c "zcat /proc/config.gz | grep CONFIG_NTSYNC"
-  ```
-  Active if `/dev/ntsync` exists (as a character device) and `CONFIG_NTSYNC=y` is shown.
-
-- **Ptrace Leak Fix (kernels < 5.16)** — Backports an upstream Linux 5.16 hardening fix that closes a race where `ptrace_message` (e.g. a forked child's PID during a ptrace event) was briefly visible to other readers before the tracer was actually notified, or left stale after detach. Relevant on kernel 5.10/5.15 branches, where this isn't present natively; on 6.1+ branches it's already upstream, so nothing is patched there. There's no `/proc` or `/sys` flag to check this directly — it's a kernel-internal timing/security fix, not a toggle.
-
-- **Safe Mode Permanently Disabled** — KernelSU/SukiSU's volume-key safe-mode detection (holding Vol Up/Down during boot to temporarily disable root) is permanently patched out at the kernel level. Most users already rely on [Yet Another Bootloop Protector](https://github.com/Magisk-Modules-Alt-Repo/YetAnotherBootloopProtector/releases) for this purpose, and the volume-key combo can trigger by accident during normal use. There's no `/proc` or `/sys` flag to check this directly — verify behaviorally: holding the volume keys during boot should no longer trigger safe mode. If you need emergency root disable, use YABP instead.
-"""
+- **Safe Mode Permanently Disabled** — KernelSU/SukiSU's volume-key safe-mode detection (holding Vol Up/Down during boot to temporarily disable root) is permanently patched out at the kernel level. Most users already rely on [Yet Another Bootloop Protector](https://github.com/Magisk-Modules-Alt-Repo/YetAnotherBootloopProtector/releases) for this purpose, and the volume-key combo can trigger by accident during normal use. There's no `/proc` or `/sys` flag to check this directly — verify behaviorally: holding the volume keys during boot should no longer trigger safe mode. If you need emergency root disable, use YABP instead."""
 
     def save_body(self, output_path: str = "RELEASE_BODY.md"):
         body = self.generate_body()
