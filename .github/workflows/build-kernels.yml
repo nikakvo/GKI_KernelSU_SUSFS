@@ -254,7 +254,14 @@ jobs:
 
   release:
     needs: [prepare, build]
-    if: ${{ github.event.inputs.make_release == 'true' }}
+    # !cancelled() overrides GitHub Actions' default behavior of skipping
+    # this job entirely whenever any single matrix leg of the `build` job
+    # fails (fail-fast: false only keeps the other matrix builds running -
+    # it doesn't stop one failed leg from making the whole `build` job's
+    # conclusion "failure", which by default skips anything that needs
+    # it). We still want the release made from whatever succeeded, so:
+    # run unless the workflow itself was cancelled.
+    if: ${{ !cancelled() && github.event.inputs.make_release == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
