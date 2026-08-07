@@ -124,9 +124,6 @@ CONFIG_LRU_GEN_ENABLED=y
 
 # === PSI (Pressure Stall Information) Config ===
 CONFIG_PSI=y
-
-# === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===
-CONFIG_NTSYNC=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
@@ -145,6 +142,7 @@ CONFIG_NTSYNC=y
         self.kernel_patches_dir = self.workspace / "kernel_patches"
         self.toolchain_dir = self.workspace / "toolchain"
         self.mkbootimg_dir = self.workspace / "mkbootimg"
+        self.lto_fallback_used = False
         self.detected_respin = None
         self._setup_env()
 
@@ -463,63 +461,6 @@ CONFIG_NTSYNC=y
                 self._chdir(ksu_dir)
                 self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
                 self._chdir(self.work_dir)
-
-    # Upstream Linux changed ptrace_notify()'s signature in 5.16 to pass
-    # the event message as an explicit argument instead of stashing it in
-    # current->ptrace_message before the tracer is actually notified -
-    # closing a race where that field (e.g. a forked child's PID) is
-    # briefly visible to other readers before/after the real notify.
-    # Kernels below 5.16 (5.10, 5.15) don't have this fix upstream, so we
-    # backport it here. This is a no-op skip - not a failure - on kernels
-    # that already have it natively.
-    def apply_ptrace_leak_fix(self):
-        if self.config.kernel_version not in ("5.10", "5.15"):
-            logger.info("Skipping ptrace leak fix - already upstream on this kernel version")
-            return
-        logger.info("=== Applying ptrace leak fix (kernels < 5.16) ===")
-        patch_file = Path(__file__).parent / "patches" / "gki_ptrace.patch"
-        if not patch_file.exists():
-            logger.warning(f"ptrace leak fix patch not found at {patch_file} - skipping")
-            return
-        common_dir = self.work_dir / "common"
-        self._chdir(common_dir)
-        result = self._run_cmd(f"patch -p1 -F 3 < {patch_file}", check=False)
-        self._chdir(self.work_dir)
-        if result.returncode != 0:
-            logger.warning(
-                "ptrace leak fix did not apply cleanly - kernel source may "
-                "have diverged from what this patch expects, continuing "
-                "without it"
-            )
-
-    # NTSync (drivers/misc/ntsync.c) emulates Windows NT synchronization
-    # primitives in-kernel - useful for Winlator/Wine. It's mainline as of
-    # Linux 6.14, so this backports it via two patches from kernel_patches:
-    # a base driver patch (same for every branch) plus a small per-branch
-    # compat patch that wires it into that branch's Kconfig/Makefile.
-    # Skips (doesn't fail the build) if no compat patch exists yet for
-    # this specific android/kernel combo.
-    def apply_ntsync_patches(self):
-        logger.info("=== Applying NTSync driver patches ===")
-        patches_dir = Path(__file__).parent / "patches"
-        base_patch = patches_dir / "ntsync_base.patch"
-        compat_patch = patches_dir / f"ntsync_compat_{self.config.android_version}-{self.config.kernel_version}.patch"
-        if not base_patch.exists() or not compat_patch.exists():
-            logger.warning(
-                f"NTSync patches not found for "
-                f"{self.config.android_version}-{self.config.kernel_version} "
-                f"(looked for {compat_patch.name}) - skipping"
-            )
-            return
-        common_dir = self.work_dir / "common"
-        self._chdir(common_dir)
-        for patch_file, label in [(base_patch, "driver source"), (compat_patch, "Kconfig/Makefile wiring")]:
-            result = self._run_cmd(f"patch -p1 -F 3 < {patch_file}", check=False)
-            if result.returncode != 0:
-                logger.warning(f"NTSync {label} patch failed to apply cleanly - continuing without NTSync")
-                self._chdir(self.work_dir)
-                return
-        self._chdir(self.work_dir)
 
     def add_bbg(self):
         if not self.config.use_bbg:
@@ -874,10 +815,24 @@ CONFIG_NTSYNC=y
             self._configure_zram()
             self._configure_bazel()
 
+        if self.config.enable_bfq:
+            with open(config_file, "a") as f:
+                f.write("# === BFQ I/O Scheduler Config ===\n")
+                f.write("CONFIG_IOSCHED_BFQ=y\n")
+                f.write("CONFIG_BFQ_GROUP_IOSCHED=y\n")
+
         if self.config.enable_ksm:
             with open(config_file, "a") as f:
                 f.write("# === KSM (Kernel Samepage Merging) Config ===\n")
                 f.write("CONFIG_KSM=y\n")
+
+        if self.config.enable_f2fs_compression:
+            with open(config_file, "a") as f:
+                f.write("# === F2FS Transparent Compression Config ===\n")
+                f.write("CONFIG_F2FS_FS_COMPRESSION=y\n")
+                f.write("CONFIG_F2FS_FS_LZ4=y\n")
+                f.write("CONFIG_F2FS_FS_LZ4HC=y\n")
+                f.write("CONFIG_F2FS_FS_ZSTD=y\n")
 
         if self.config.bbr_version == "bbr1":
             with open(config_file, "a") as f:
@@ -1099,12 +1054,29 @@ CONFIG_NTSYNC=y
             else:
                 logger.warning("savedefconfig did not produce an output file, leaving gki_defconfig as-is")
 
+    # Known LLVM/clang verifier bug seen on some GKI branches (currently
+    # android15-6.6 and up): ThinLTO + debug info trips over
+    # sanitizer-inserted calls (e.g. __asan_handle_no_return) that are
+    # missing !dbg metadata, and the module verifier aborts the build
+    # with "Broken module found". This is an upstream Google/AOSP
+    # toolchain regression tied to the clang prebuilt bundled with that
+    # branch - not something this build pipeline introduces. We detect
+    # it and transparently retry the same build with LTO=none.
+    _LTO_VERIFIER_BUG_MARKERS = (
+        "must have a !dbg location",
+        "Broken module found, compilation aborted",
+    )
+
+    def _looks_like_lto_verifier_bug(self, output: str) -> bool:
+        return all(marker in output for marker in self._LTO_VERIFIER_BUG_MARKERS)
+
     @property
     def artifact_suffix(self) -> str:
-        """LTO is always thin - no fallback mode exists anymore, so this
-        is kept only so callers referencing it (prepare_boot_images,
-        create_anykernel_zips) don't need to change."""
-        return ""
+        """Appended to artifact filenames when the ThinLTO fallback kicked
+        in, so it's visible at a glance in the workspace/release listing
+        which builds are running without GKI-standard ThinLTO trimming -
+        no need to dig through the build log to find out."""
+        return "-noLTO" if self.lto_fallback_used else ""
 
     def _run_build_command(self, cmd: str) -> tuple:
         """Runs a (potentially very long) build command. Streams output
@@ -1130,10 +1102,11 @@ CONFIG_NTSYNC=y
         except RuntimeError:
             return False, "\n".join(lines)
 
-    def _write_build_report(self, success: bool, build_seconds: float, is_legacy: bool):
+    def _write_build_report(self, lto_mode: str, fallback_used: bool, success: bool, build_seconds: float, is_legacy: bool):
         """Writes a short, human-readable summary of how this kernel was
-        actually built - so this doesn't have to be dug out of the full
-        build log."""
+        actually built (build method, LTO mode, whether the ThinLTO
+        fallback kicked in) - so this doesn't have to be dug out of the
+        full build log."""
         from datetime import datetime
         report_path = self.work_dir / "BUILD_REPORT.txt"
         lines = [
@@ -1143,10 +1116,22 @@ CONFIG_NTSYNC=y
             f"Kernel respin: {self.detected_respin or '(unknown - could not be determined)'}",
             f"Timestamp:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Build method:  {'Legacy build.sh' if is_legacy else 'Bazel (Kleaf)'}",
-            "LTO mode used: thin",
+            f"LTO mode used: {lto_mode}",
             f"Result:        {'SUCCESS' if success else 'FAILED'}",
             f"Build time:    {build_seconds:.1f}s",
         ]
+        if fallback_used:
+            lines += [
+                "",
+                "NOTE: --lto=thin failed with a known LLVM/clang verifier bug",
+                '(sanitizer-inserted call missing debug-info location, "Broken',
+                'module found, compilation aborted"). This is an upstream',
+                "Google/AOSP toolchain issue on this branch's bundled clang -",
+                "not something in this build pipeline. The kernel was rebuilt",
+                "with LTO=none as a fallback: it is fully functional, but does",
+                "NOT have GKI-standard ThinLTO trimming/optimization like",
+                "Google's official build for this branch.",
+            ]
         report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         logger.info(f"Build report written to: {report_path}")
 
@@ -1208,25 +1193,14 @@ CONFIG_NTSYNC=y
 
         import time
         start_time = time.time()
+        lto_mode = "thin"
+        fallback_used = False
         is_legacy = (self.work_dir / "build/build.sh").exists()
         bazel_cache = Path.home() / ".cache" / "bazel"
 
-        # Known LLVM/ThinLTO verifier bug on Bazel/Kleaf branches (6.6 and
-        # up so far): cross-module inlining under ThinLTO can produce an
-        # inlined call in a function with debug info that's missing a
-        # !dbg location, which trips the IR verifier ("Broken module
-        # found, compilation aborted"). This isn't a LTO=thin-vs-none
-        # question - a known-working reference build on this same branch
-        # doesn't pass --lto at all and lets the Bazel target's own
-        # default win, and that avoids the bug while still getting real
-        # LTO (not a no-LTO fallback). So: force thin explicitly where
-        # it's proven to work, and just omit --lto on branches affected
-        # by this bug so Bazel's target default applies instead.
-        _THIN_LTO_BUG_KERNEL_VERSIONS = ("6.6", "6.12", "6.18")
-
-        def _build_cmd() -> str:
+        def _build_cmd(lto: str) -> str:
             if is_legacy:
-                return "LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
+                return f"LTO={lto} BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
             # Building //common:kernel_aarch64/Image directly (instead of
             # the full //common:kernel_aarch64_dist target) matches
             # WildKernels/GKI_KernelSU_SUSFS's own build-kernel action.
@@ -1239,9 +1213,8 @@ CONFIG_NTSYNC=y
             # code already expects, so no other changes are needed here.
             # --nokmi_symbol_list_strict_mode kept as a defensive no-op in
             # case this target still runs that check on some branch.
-            lto_flag = "" if self.config.kernel_version in _THIN_LTO_BUG_KERNEL_VERSIONS else "--lto=thin "
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
-                    f"{lto_flag}--nokmi_symbol_list_strict_mode "
+                    f"--lto={lto} --nokmi_symbol_list_strict_mode "
                     f"--nokmi_symbol_list_violations_check //common:kernel_aarch64/Image")
 
         try:
@@ -1253,14 +1226,23 @@ CONFIG_NTSYNC=y
                 self.remove_protected_exports()
                 bazel_cache.mkdir(parents=True, exist_ok=True)
 
-            # No fallback retry on failure - if the build fails, it fails,
-            # full stop. The LTO mode itself is chosen upfront per branch
-            # above (thin where proven, Bazel default where thin is known
-            # to hit the verifier bug), not switched after a failed attempt.
-            success, output = self._run_build_command(_build_cmd())
+            success, output = self._run_build_command(_build_cmd(lto_mode))
+
+            if not success and self._looks_like_lto_verifier_bug(output):
+                logger.warning(
+                    "ThinLTO hit a known LLVM verifier bug (missing !dbg on a "
+                    "sanitizer-inserted call, \"Broken module found\") - this "
+                    "is an upstream Google/AOSP clang toolchain issue on this "
+                    "branch, not a problem with this build pipeline. "
+                    "Retrying with LTO=none..."
+                )
+                lto_mode = "none"
+                fallback_used = True
+                self.lto_fallback_used = True
+                success, output = self._run_build_command(_build_cmd(lto_mode))
 
             build_seconds = time.time() - start_time
-            self._write_build_report(success, build_seconds, is_legacy)
+            self._write_build_report(lto_mode, fallback_used, success, build_seconds, is_legacy)
 
             if success:
                 logger.info("=== Kernel compilation succeeded ===")
@@ -1411,8 +1393,6 @@ CONFIG_NTSYNC=y
             self.init_and_sync_kernel()
             self._detect_kernel_respin()
             self._write_scmversion()
-            self.apply_ptrace_leak_fix()
-            self.apply_ntsync_patches()
             self.add_kernel_supatch()
             self.add_kernelsu()
             if self.config.disable_safemode:
