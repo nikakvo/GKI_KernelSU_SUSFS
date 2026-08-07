@@ -45,8 +45,18 @@ on:
         required: true
         type: boolean
         default: false
+      enable_bfq:
+        description: 'Enable BFQ I/O scheduler'
+        required: true
+        type: boolean
+        default: false
       enable_ksm:
         description: 'Enable KSM (Kernel Samepage Merging)'
+        required: true
+        type: boolean
+        default: false
+      enable_f2fs_compression:
+        description: 'Enable F2FS transparent compression support'
         required: true
         type: boolean
         default: false
@@ -180,7 +190,9 @@ jobs:
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
+          [ "${{ github.event.inputs.enable_bfq }}" = "true" ] && ARGS="$ARGS --bfq"
           [ "${{ github.event.inputs.enable_ksm }}" = "true" ] && ARGS="$ARGS --ksm"
+          [ "${{ github.event.inputs.enable_f2fs_compression }}" = "true" ] && ARGS="$ARGS --f2fs-compression"
 
           if [ "${{ github.event.inputs.set_defbbr }}" = "true" ]; then
             ARGS="$ARGS --bbr-version bbr1"
