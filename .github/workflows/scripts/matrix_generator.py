@@ -1,124 +1,118 @@
 #!/usr/bin/env python3
 import json
-import os
-from pathlib import Path
+import urllib.request
+import ssl
 import sys
-sys.path.insert(0, str(Path(__file__).parent))
+from pathlib import Path
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent))
 from config import KERNEL_VERSION
 
 
-def generate_build_matrix() -> list:
-    matrix_path = Path(__file__).parent.parent / "config" / "matrix.json"
-    with open(matrix_path, 'r') as f:
-        matrix = json.load(f)
+class ReleaseGenerator:
+    def __init__(self):
+        self.matrix_path = Path(__file__).parent.parent / "config" / "matrix.json"
+        self.ssl_ctx = ssl.create_default_context()
+        self.ssl_ctx.check_hostname = False
+        self.ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    builds = []
-    for key, configs in matrix.items():
-        android, kernel = key.split('-')
-        for cfg in configs:
-            # Only include entries the matrix marks as enabled - keeps this
-            # in sync with update_matrix.py (which adds new respins as
-            # enabled: false) and with build-kernel.sh's local build logic.
-            if not cfg.get("enabled", True):
-                continue
-            build = {
-                "android": android,
-                "kernel": kernel,
-                "sub_level": cfg["sub_level"],
-                "os_patch": cfg["os_patch_level"],
-            }
-            if "revision" in cfg:
-                build["revision"] = cfg["revision"]
-            if "kernel_tag" in cfg:
-                build["kernel_tag"] = cfg["kernel_tag"]
-            builds.append(build)
+    def load_matrix(self) -> dict:
+        with open(self.matrix_path, 'r') as f:
+            return json.load(f)
 
-    # Sort by Android version and kernel version
-    builds.sort(key=lambda x: (
-        int(x["android"].replace("android", "")),
-        float(x["kernel"]),
-        x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"  # X (LTS) goes last
-    ))
+    def _fetch_json(self, url: str) -> dict:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Python'})
+            with urllib.request.urlopen(req, context=self.ssl_ctx) as response:
+                return json.loads(response.read())
+        except Exception:
+            return {}
 
-    return builds
+    def get_ksu_info(self) -> tuple:
+        ksu_tag, ksu_commit = "latest", "unknown"
+        tags = self._fetch_json("https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/git/refs/tags")
+        if tags:
+            ksu_tag = tags[-1]['ref'].split('/')[-1]
+        ref = self._fetch_json("https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/git/ref/heads/main")
+        if ref:
+            ksu_commit = ref['object']['sha'][:7]
+        return ksu_tag, ksu_commit
 
+    def generate_body(self) -> str:
+        return f"""## Features
+- SUSFS {KERNEL_VERSION}
+- Manual Syscall Hooks
+- Magic Mount Support
+- BBR v1 Support
+- ZRAM Support
+- LZ4KD Compression Support
+- MGLRU Support (Multi-Gen LRU, enabled by default)
+- PSI Support (Pressure Stall Information)
+- IP Set Support (netfilter IP/network grouping)
+- CAKE Queue Discipline Support
+- Wireguard Support
+- Safe Mode Permanently Disabled
 
-def generate_classified_matrix() -> dict:
-    """Generate a matrix grouped by Android version (enabled entries only -
-    see the note in generate_build_matrix())."""
-    matrix_path = Path(__file__).parent.parent / "config" / "matrix.json"
-    with open(matrix_path, 'r') as f:
-        matrix = json.load(f)
+## Detailed explanation
 
-    classified = {}
-    for key, configs in matrix.items():
-        android, kernel = key.split('-')
-        for cfg in configs:
-            if not cfg.get("enabled", True):
-                continue
-            if android not in classified:
-                classified[android] = {}
-            if kernel not in classified[android]:
-                classified[android][kernel] = []
-            classified[android][kernel].append(cfg)
+- **SUSFS {KERNEL_VERSION}** — Addon for hiding root using kernel-level patches combined with a userspace module (hides suspicious paths, mount points, spoofs kernel stats/uname/cmdline, and more).
 
-    # Sort
-    sorted_classified = {}
-    for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
-        sorted_classified[android] = {}
-        for kernel in sorted(classified[android].keys(), key=lambda x: float(x)):
-            # Sort by sub_level, X (LTS) goes last
-            sorted_classified[android][kernel] = sorted(
-                classified[android][kernel],
-                key=lambda x: x["sub_level"] if x["sub_level"] != "X" else "ZZZZ"
-            )
+- **Manual Syscall Hooks** — Low-level syscall interception method used for root management and detection evasion, offering finer control than standard hooking approaches.
 
-    return sorted_classified
+- **Magic Mount Support** — Overlay-based mounting system that lets root modules modify the filesystem without altering the underlying partitions directly, improving compatibility and reducing detection surface.
 
+- **BBR v1 Support** — TCP congestion control algorithm developed by Google, providing better throughput and lower latency than traditional algorithms (e.g. CUBIC) on modern networks, especially with packet loss or variable bandwidth.
+  ```
+  su -c cat /proc/sys/net/ipv4/tcp_congestion_control
+  ```
+  Active if output is `bbr`.
 
-def save_matrix_output():
-    builds = generate_build_matrix()
-    output = 'matrix=' + json.dumps(builds)
-    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-        f.write(output + '\n')
-    print(f"Matrix generated: {len(builds)} builds")
+- **LZ4KD Support** — Enhanced LZ4 compression algorithm for ZRAM, offering better compression ratios with minimal CPU overhead — improves effective RAM capacity by compressing swapped-out memory pages.
+  ```
+  su -c cat /sys/block/zram0/comp_algorithm
+  ```
+  Active if `[lz4kd]` appears in brackets.
 
-    # Save version number
-    version_output = f'kernel_version={KERNEL_VERSION}'
-    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-        f.write(version_output + '\n')
-    print(f"Kernel version: {KERNEL_VERSION}")
+- **MGLRU Support (Multi-Gen LRU, enabled by default)** — Modern memory reclaim algorithm that replaces the traditional active/inactive LRU lists with multiple generations based on page access recency. Results in more accurate reclaim decisions, fewer background apps being killed under memory pressure, and smoother multitasking.
+  ```
+  su -c cat /sys/kernel/mm/lru_gen/enabled
+  ```
+  Active if the value is non-zero (e.g. `0x0003`), not `0x0000`.
 
-    # Also save the classified matrix
-    classified = generate_classified_matrix()
-    classified_output = 'classified_matrix=' + json.dumps(classified)
-    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-        f.write(classified_output + '\n')
-    print(f"Classified matrix saved")
+- **PSI Support (Pressure Stall Information)** — Kernel subsystem that reports real-time memory, CPU, and I/O pressure metrics (`/proc/pressure/*`). Allows the Low Memory Killer Daemon (LMKD) to make smarter kill decisions based on actual system pressure instead of coarse thresholds. Works in tandem with MGLRU.
+  ```
+  su -c cat /proc/pressure/memory
+  ```
+  Active if it prints `avg10=... avg60=... avg300=... total=...` instead of an error.
 
-    # Save matrix summary
-    summary = []
-    for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
-        for kernel, configs in classified[android].items():
-            sub_levels = [c["sub_level"] for c in configs]
-            summary.append(f"{android}-{kernel}: {', '.join(sub_levels)}")
+- **IP Set Support (netfilter IP/network grouping)** — Kernel-level support for `ipset`, allowing IP addresses, networks, and ports to be grouped into named sets for fast, efficient `iptables`/`ip6tables` matching. Enables O(1) hash-based lookups instead of linear rule scanning, and dynamic set updates without reloading the full firewall ruleset. *(Requires a separate userspace `ipset` binary — see [ipset-arm64](https://github.com/nikakvo/ipset-arm64), not bundled with this kernel.)*
+  ```
+  su -c "ipset create test hash:ip && ipset destroy test"
+  ```
+  Active if it runs with no "Kernel module not found" error.
 
-    summary_output = 'matrix_summary=' + json.dumps(summary)
-    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-        f.write(summary_output + '\n')
+- **CAKE Queue Discipline Support** — Modern queue management algorithm (`sch_cake`) that reduces bufferbloat and improves latency under load by combining fair queuing, active queue management, and traffic shaping in a single, easy-to-configure qdisc.
+  ```
+  su -c "tc qdisc add dev lo root cake && tc qdisc show dev lo && tc qdisc del dev lo root"
+  ```
+  Active if `qdisc show` lists `qdisc cake ...`.
 
-    # Save Markdown-formatted summary
-    md_summary = "### Build Matrix Summary\n\n"
-    for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
-        md_summary += f"**{android.upper()}**\n\n"
-        for kernel, configs in classified[android].items():
-            sub_levels = ", ".join([c["sub_level"] for c in configs])
-            md_summary += f"- {kernel}: {sub_levels}\n"
-        md_summary += "\n"
+- **Wireguard Support** — Built-in kernel-level support for the WireGuard VPN protocol, offering a lightweight, high-performance, and modern alternative to OpenVPN/IPsec.
+  ```
+  su -c "zcat /proc/config.gz | grep CONFIG_WIREGUARD"
+  ```
+  Active if it shows `CONFIG_WIREGUARD=y`.
 
-    with open("matrix_summary.md", 'w', encoding='utf-8') as f:
-        f.write(md_summary)
+- **Safe Mode Permanently Disabled** — KernelSU/SukiSU's volume-key safe-mode detection (holding Vol Up/Down during boot to temporarily disable root) is permanently patched out at the kernel level. Most users already rely on [Yet Another Bootloop Protector](https://github.com/Magisk-Modules-Alt-Repo/YetAnotherBootloopProtector/releases) for this purpose, and the volume-key combo can trigger by accident during normal use. There's no `/proc` or `/sys` flag to check this directly — verify behaviorally: holding the volume keys during boot should no longer trigger safe mode. If you need emergency root disable, use YABP instead."""
+
+    def save_body(self, output_path: str = "RELEASE_BODY.md"):
+        body = self.generate_body()
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w') as f:
+            f.write(body)
+        print(body)
 
 
 if __name__ == '__main__':
-    save_matrix_output()
+    ReleaseGenerator().save_body(sys.argv[1] if len(sys.argv) > 1 else "RELEASE_BODY.md")
