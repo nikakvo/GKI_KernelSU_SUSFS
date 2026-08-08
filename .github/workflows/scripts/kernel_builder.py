@@ -531,32 +531,6 @@ CONFIG_NTSYNC=y
                 return
         self._chdir(self.work_dir)
 
-    # Small, self-contained ARM64/generic microoptimizations that don't
-    # touch KMI-sensitive structs or scheduler/mm/fs internals, so they're
-    # applied unconditionally on every branch - no per-version compat
-    # files needed like NTSync, since arch/arm64/lib/clear_page.S and
-    # lib/math/int_sqrt.c have been structurally stable across 5.10
-    # through 6.12+. Each patch is independent: one failing to apply
-    # cleanly just warns and skips that one, it doesn't block the other
-    # or fail the build.
-    def apply_performance_patches(self):
-        logger.info("=== Applying performance micro-optimization patches ===")
-        patches_dir = Path(__file__).parent / "patches"
-        common_dir = self.work_dir / "common"
-        self._chdir(common_dir)
-        for filename, label in [
-            ("clear_page_16bytes_align.patch", "clear_page() 16-byte alignment"),
-            ("int_sqrt.patch", "int_sqrt() rewrite"),
-        ]:
-            patch_file = patches_dir / filename
-            if not patch_file.exists():
-                logger.warning(f"{label} patch not found at {patch_file} - skipping")
-                continue
-            result = self._run_cmd(f"patch -p1 -F 3 < {patch_file}", check=False)
-            if result.returncode != 0:
-                logger.warning(f"{label} patch failed to apply cleanly - continuing without it")
-        self._chdir(self.work_dir)
-
     def add_bbg(self):
         if not self.config.use_bbg:
             return
@@ -1527,7 +1501,6 @@ CONFIG_NTSYNC=y
             self._write_scmversion()
             self.apply_ptrace_leak_fix()
             self.apply_ntsync_patches()
-            self.apply_performance_patches()
             self.add_kernel_supatch()
             self.add_kernelsu()
             if self.config.disable_safemode:
