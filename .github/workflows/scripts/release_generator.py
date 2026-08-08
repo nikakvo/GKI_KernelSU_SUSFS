@@ -54,6 +54,7 @@ class ReleaseGenerator:
 - NTSync Support (Winlator/Wine NT synchronization primitives)
 - Ptrace Leak Fix (kernels < 5.16)
 - Safe Mode Permanently Disabled
+- Thin LTO
 
 ## Detailed explanation
 
