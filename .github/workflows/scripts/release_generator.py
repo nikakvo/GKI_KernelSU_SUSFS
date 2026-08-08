@@ -118,10 +118,10 @@ class ReleaseGenerator:
 - **Safe Mode Permanently Disabled** — KernelSU/SukiSU's volume-key safe-mode detection (holding Vol Up/Down during boot to temporarily disable root) is permanently patched out at the kernel level. Most users already rely on [Yet Another Bootloop Protector](https://github.com/Magisk-Modules-Alt-Repo/YetAnotherBootloopProtector/releases) for this purpose, and the volume-key combo can trigger by accident during normal use. There's no `/proc` or `/sys` flag to check this directly — verify behaviorally: holding the volume keys during boot should no longer trigger safe mode. If you need emergency root disable, use YABP instead.
 
 - **Thin LTO** — LLVM Thin Link-Time Optimization (LTO) performs optimization across translation units while keeping the build process more parallel and memory-efficient than full LTO. It can improve kernel performance and code generation with lower build-time and memory overhead than full LTO.
-```
-su -c "zcat /proc/config.gz | grep CONFIG_LTO_CLANG_THIN"
-```
-Active if it shows `CONFIG_LTO_CLANG_THIN=y`
+  ```
+  su -c "zcat /proc/config.gz | grep CONFIG_LTO_CLANG_THIN"
+  ```
+  Active if it shows `CONFIG_LTO_CLANG_THIN=y`
 """
 
     def save_body(self, output_path: str = "RELEASE_BODY.md"):
