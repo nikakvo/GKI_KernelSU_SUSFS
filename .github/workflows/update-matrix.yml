@@ -10,7 +10,7 @@ on:
         description: 'Lookback window in months'
         required: false
         type: string
-        default: '24'
+        default: '12'
   schedule:
     # Every Sunday at 06:00 UTC. Purely a freshness check on matrix.json -
     # nothing gets built or released from this, so a quiet weekly cadence
