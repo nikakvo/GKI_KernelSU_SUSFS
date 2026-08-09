@@ -2,7 +2,6 @@ name: Update Kernel Matrix
 
 permissions:
   contents: write
-  workflows: write
 
 on:
   workflow_dispatch:
@@ -23,6 +22,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
