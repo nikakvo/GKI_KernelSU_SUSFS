@@ -10,7 +10,7 @@ on:
         description: 'Lookback window in months'
         required: false
         type: string
-        default: '12'
+        default: '24'
 
 env:
   PYTHON_VERSION: '3.10'
