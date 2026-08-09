@@ -2,6 +2,7 @@ name: Update Kernel Matrix
 
 permissions:
   contents: write
+  workflows: write
 
 on:
   workflow_dispatch:
@@ -10,13 +11,7 @@ on:
         description: 'Lookback window in months'
         required: false
         type: string
-        default: '24'
-  schedule:
-    # Every Sunday at 06:00 UTC. Purely a freshness check on matrix.json -
-    # nothing gets built or released from this, so a quiet weekly cadence
-    # is enough. Run it manually any time (e.g. right before cutting a
-    # release) via the "Run workflow" button.
-    - cron: '0 6 * * 0'
+        default: '12'
 
 env:
   PYTHON_VERSION: '3.10'
