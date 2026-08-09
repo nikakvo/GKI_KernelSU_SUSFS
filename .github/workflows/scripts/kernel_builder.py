@@ -1203,89 +1203,6 @@ CONFIG_NTSYNC=y
                 modules_bzl.write_text(new_content)
                 logger.info("common/modules.bzl: cleared protected_modules")
 
-    # The pinned baseline clang (r510928, LLVM 18) that repo sync brings in
-    # for Bazel/Kleaf branches is what actually triggers the ThinLTO
-    # verifier bug (see build_kernel() below). A known-working reference
-    # build on this same branch avoids it entirely by swapping to a newer
-    # experimental clang (r547379, LLVM 20) instead. This downloads that
-    # toolchain and points Kleaf at it - it does NOT touch anything on
-    # legacy build.sh branches (5.10/5.15/6.1), only Bazel ones.
-    _EXPERIMENTAL_CLANG = {
-        "name": "clang-r547379",
-        "source_commit": "77c95e8253c2c82ffd4fee92c0ad9f5ac1e8ca04",
-        "baseline_name": "clang-r510928",
-    }
-
-    def swap_to_experimental_toolchain(self):
-        if (self.work_dir / "build/build.sh").exists():
-            return  # legacy branch - not affected, nothing to do
-        if self.config.kernel_version not in ("6.6", "6.12", "6.18"):
-            return  # Bazel branch, but not one known to hit the bug
-
-        clang = self._EXPERIMENTAL_CLANG
-        common_dir = self.work_dir / "common"
-        toolchain_parent = self.work_dir / "prebuilts/clang/host/linux-x86"
-        toolchain_root = toolchain_parent / clang["name"]
-        baseline_build_file = toolchain_parent / clang["baseline_name"] / "BUILD.bazel"
-        build_config = common_dir / "build.config.constants"
-        versions_file = toolchain_parent / "kleaf/versions.bzl"
-
-        if toolchain_root.exists():
-            logger.info(f"{clang['name']} already present, skipping download")
-        else:
-            logger.info(f"=== Downloading experimental toolchain {clang['name']} (fixes ThinLTO verifier bug) ===")
-            archive_url = (f"https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/"
-                          f"+archive/{clang['source_commit']}/{clang['name']}.tar.gz")
-            archive_path = self.workspace / f"{clang['name']}.tar.gz"
-            result = self._run_cmd(f"curl -fL --retry 3 -o {archive_path} '{archive_url}'", check=False)
-            if result.returncode != 0 or not archive_path.exists():
-                logger.warning(f"Failed to download {clang['name']} - falling back to Bazel's own LTO default")
-                return
-            toolchain_root.mkdir(parents=True, exist_ok=True)
-            self._run_cmd(f"tar -xzf {archive_path} -C {toolchain_root}", check=False)
-            archive_path.unlink(missing_ok=True)
-
-        # r547379's own BUILD.bazel needs a newer @rules_python repo this
-        # pinned Kleaf checkout doesn't have. The baseline r510928's
-        # BUILD.bazel is compatible and the compiler payload files are
-        # unaffected by which BUILD.bazel wraps them, so reuse it.
-        if baseline_build_file.exists():
-            self._run_cmd(f"cp {baseline_build_file} {toolchain_root}/BUILD.bazel", check=False)
-        else:
-            logger.warning(f"Baseline BUILD.bazel not found at {baseline_build_file} - "
-                          f"{clang['name']} may fail to build with Kleaf")
-            return
-
-        clang_bin = toolchain_root / "bin" / "clang"
-        if not clang_bin.exists():
-            logger.warning(f"{clang['name']}/bin/clang missing after extraction - skipping toolchain swap")
-            return
-
-        if build_config.exists():
-            content = build_config.read_text()
-            old_setting = f"CLANG_VERSION={clang['baseline_name'].replace('clang-', '')}"
-            new_setting = f"CLANG_VERSION={clang['name'].replace('clang-', '')}"
-            if old_setting in content and new_setting not in content:
-                build_config.write_text(content.replace(old_setting, new_setting, 1))
-                logger.info(f"build.config.constants: {old_setting} -> {new_setting}")
-            elif new_setting not in content:
-                logger.warning(f"Could not find '{old_setting}' in build.config.constants to swap - "
-                              "toolchain selector unchanged")
-
-        if versions_file.exists():
-            content = versions_file.read_text()
-            baseline_entry = f'    "{clang["baseline_name"].replace("clang-", "")}",\n'
-            new_entry = f'    "{clang["name"].replace("clang-", "")}",\n'
-            if baseline_entry in content and new_entry not in content:
-                versions_file.write_text(content.replace(baseline_entry, baseline_entry + new_entry, 1))
-                logger.info(f"Registered {clang['name']} in Kleaf versions.bzl")
-        else:
-            logger.warning(f"Kleaf versions.bzl not found at {versions_file} - "
-                          f"{clang['name']} may not be recognized as a valid toolchain")
-
-        logger.info(f"=== Experimental toolchain swap to {clang['name']} complete ===")
-        self._experimental_toolchain_active = True
-
     def build_kernel(self) -> bool:
         logger.info("=== Starting kernel compilation ===")
         self._chdir(self.work_dir)
@@ -1321,13 +1238,14 @@ CONFIG_NTSYNC=y
             # case this target still runs that check on some branch.
             #
             # --lto=thin is always forced, no exceptions and no silent
-            # fallback to Bazel's own default. swap_to_experimental_toolchain()
-            # (called right before this) swaps 6.6/6.12/6.18 branches to a
-            # newer clang that's known not to hit the ThinLTO verifier bug
-            # the pinned baseline compiler has - but even if that swap
-            # failed for some reason, we still force thin here. If it
-            # breaks, it breaks loudly in the log, which is what we want:
-            # something to actually debug, not a quiet downgrade masking it.
+            # fallback to Bazel's own default. We stay on the pinned
+            # baseline clang (r510928) for every branch, same as
+            # android12/13/14 - the previous experimental clang-r547379
+            # swap for 6.6/6.12/6.18 caused a kernel that built fine but
+            # failed to boot on device, so it has been removed. If thin
+            # LTO breaks on the baseline compiler, it breaks loudly in
+            # the log, which is what we want: something to actually
+            # debug, not a quiet downgrade masking it.
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
                     f"--lto=thin --nokmi_symbol_list_strict_mode "
                     f"--nokmi_symbol_list_violations_check //common:kernel_aarch64/Image")
@@ -1513,7 +1431,6 @@ CONFIG_NTSYNC=y
             self.configure_kernel()
             self.configure_kernel_name()
             self.show_kernel_config()
-            self.swap_to_experimental_toolchain()
 
             if not self.build_kernel():
                 return BuildResult(success=False, config=self.config, message="Kernel compilation failed", build_time=time.time() - start_time)
