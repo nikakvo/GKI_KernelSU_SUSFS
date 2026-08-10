@@ -42,6 +42,11 @@ on:
         required: false
         type: string
         default: ''
+      kernel_tag:
+        description: 'Pin kernel/common to a respin tag (optional, e.g. android13-5.15-2026-06_r4 or android13-5.15.208_r00). Recommended for the boot.img revision suffix to be included in filenames, matching matrix.json / local builds.'
+        required: false
+        type: string
+        default: ''
       kernelsu_version:
         description: 'SukiSU Version'
         required: true
@@ -180,6 +185,7 @@ jobs:
           ARGS="$ARGS --sub-level ${{ github.event.inputs.sub_level }}"
           ARGS="$ARGS --os-patch ${{ github.event.inputs.os_patch_level }}"
           [ -n "${{ github.event.inputs.revision }}" ] && ARGS="$ARGS --revision ${{ github.event.inputs.revision }}"
+          [ -n "${{ github.event.inputs.kernel_tag }}" ] && ARGS="$ARGS --kernel-tag ${{ github.event.inputs.kernel_tag }}"
           ARGS="$ARGS --ksu-version ${{ github.event.inputs.kernelsu_version }}"
 
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
