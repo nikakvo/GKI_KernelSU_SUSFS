@@ -208,6 +208,16 @@ jobs:
           find /tmp/gki-build -name "*AnyKernel3*.zip" -type f -exec cp {} artifacts/ \;
           find /tmp/gki-build -name "*-boot.img" -type f -exec cp {} artifacts/ \;
 
+      - name: Patch status summary
+        run: |
+          mkdir -p build-results
+          PATCH_STATUS_SRC=$(find /tmp/gki-build -maxdepth 2 -name "PATCH_STATUS.json" | head -n1)
+          if [ -n "$PATCH_STATUS_SRC" ]; then
+            cp "$PATCH_STATUS_SRC" "build-results/${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.sub_level }}.patches.json"
+          fi
+          cd ./.github/workflows/scripts
+          python3 patch_summary.py ../../../build-results "$GITHUB_STEP_SUMMARY"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
