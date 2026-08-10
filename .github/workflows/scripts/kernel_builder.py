@@ -150,7 +150,39 @@ CONFIG_NTSYNC=y
         self.toolchain_dir = self.workspace / "toolchain"
         self.mkbootimg_dir = self.workspace / "mkbootimg"
         self.detected_respin = None
+        # Tracks the outcome of every patch/feature step so it can be
+        # surfaced in a per-build report and, across the whole matrix, in
+        # a single summary table in the GitHub Actions job summary -
+        # instead of that only being visible by digging through each
+        # build's raw log. Values: "applied", "skipped" (not requested /
+        # not applicable to this branch), or "failed" (attempted but did
+        # not apply cleanly - build may still continue depending on the
+        # step).
+        self.patch_status: dict = {}
         self._setup_env()
+
+    def _mark(self, name: str, status: str, detail: str = ""):
+        self.patch_status[name] = {"status": status, "detail": detail}
+        icon = {"applied": "OK", "skipped": "SKIP", "failed": "FAIL"}.get(status, status)
+        logger.info(f"[patch-status] {name}: {icon}" + (f" ({detail})" if detail else ""))
+
+    def _write_patch_status(self):
+        """Writes PATCH_STATUS.json into work_dir - picked up by the
+        workflow's 'Record build result' step and later aggregated across
+        the whole matrix into one summary table."""
+        import json as _json
+        report_path = self.work_dir / "PATCH_STATUS.json"
+        data = {
+            "config": self.config.config_name,
+            "android_version": self.config.android_version,
+            "kernel_version": self.config.kernel_version,
+            "sub_level": self.config.sub_level,
+            "os_patch_level": self.config.os_patch_level,
+            "kernel_respin": self.detected_respin or "",
+            "patches": self.patch_status,
+        }
+        report_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+        logger.info(f"Patch status written to: {report_path}")
 
     def _setup_env(self):
         self.env["CONFIG"] = self.config.config_name
@@ -479,11 +511,13 @@ CONFIG_NTSYNC=y
     def apply_ptrace_leak_fix(self):
         if self.config.kernel_version not in ("5.10", "5.15"):
             logger.info("Skipping ptrace leak fix - already upstream on this kernel version")
+            self._mark("ptrace_leak_fix", "skipped", "already upstream on this kernel version")
             return
         logger.info("=== Applying ptrace leak fix (kernels < 5.16) ===")
         patch_file = Path(__file__).parent / "patches" / "gki_ptrace.patch"
         if not patch_file.exists():
             logger.warning(f"ptrace leak fix patch not found at {patch_file} - skipping")
+            self._mark("ptrace_leak_fix", "failed", "patch file missing")
             return
         common_dir = self.work_dir / "common"
         self._chdir(common_dir)
@@ -495,6 +529,9 @@ CONFIG_NTSYNC=y
                 "have diverged from what this patch expects, continuing "
                 "without it"
             )
+            self._mark("ptrace_leak_fix", "failed", "did not apply cleanly")
+        else:
+            self._mark("ptrace_leak_fix", "applied")
 
     # NTSync (drivers/misc/ntsync.c) emulates Windows NT synchronization
     # primitives in-kernel - useful for Winlator/Wine. It's mainline as of
@@ -514,6 +551,7 @@ CONFIG_NTSYNC=y
                 f"{self.config.android_version}-{self.config.kernel_version} "
                 f"(looked for {compat_patch.name}) - skipping"
             )
+            self._mark("ntsync", "skipped", "no compat patch for this branch")
             return
         common_dir = self.work_dir / "common"
         self._chdir(common_dir)
@@ -521,16 +559,20 @@ CONFIG_NTSYNC=y
             result = self._run_cmd(f"patch -p1 -F 3 < {patch_file}", check=False)
             if result.returncode != 0:
                 logger.warning(f"NTSync {label} patch failed to apply cleanly - continuing without NTSync")
+                self._mark("ntsync", "failed", f"{label} did not apply cleanly")
                 self._chdir(self.work_dir)
                 return
         self._chdir(self.work_dir)
+        self._mark("ntsync", "applied")
 
     def add_bbg(self):
         if not self.config.use_bbg:
+            self._mark("baseband_guard", "skipped", "not requested")
             return
         logger.info("=== Adding Baseband-guard ===")
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
+            self._mark("baseband_guard", "failed", "common/ missing")
             return
         self._chdir(common_dir)
         self._run_cmd(f"wget -O- {BBG_CONFIG['setup_script']} | bash", check=False)
@@ -547,6 +589,7 @@ CONFIG_NTSYNC=y
                            content, flags=re.DOTALL)
             with open(kconfig_file, "w") as f:
                 f.write(content)
+        self._mark("baseband_guard", "applied")
 
     # fs/namespace.c: on SOME specific branches/sub_levels, the SUSFS
     # patch was written against a version of this file that lacks
@@ -776,22 +819,28 @@ CONFIG_NTSYNC=y
         self._fix_vm_flags_clear_compat()
 
         if result.returncode != 0:
+            self._mark("susfs", "failed", f"patch exit code {result.returncode}")
             raise RuntimeError(
                 f"SUSFS patch failed to apply cleanly: {patch_file} "
                 f"(patch exit code {result.returncode}). The kernel source "
                 f"may have diverged from what this SUSFS patch expects - "
                 f"check the build log above for rejected hunks."
             )
+        self._mark("susfs", "applied")
 
     def apply_sukisu_patches(self):
         logger.info("=== Applying SukiSU patches ===")
         self._chdir(self.work_dir / "common")
         hooks_patch = self.sukisu_patch_dir / "69_hide_stuff.patch"
-        if hooks_patch.exists():
-            self._run_cmd(f"cp {hooks_patch} . && patch -p1 -F 3 < 69_hide_stuff.patch", check=False)
+        if not hooks_patch.exists():
+            self._mark("sukisu_hide_stuff", "skipped", "69_hide_stuff.patch not found")
+            return
+        result = self._run_cmd(f"cp {hooks_patch} . && patch -p1 -F 3 < 69_hide_stuff.patch", check=False)
+        self._mark("sukisu_hide_stuff", "applied" if result.returncode == 0 else "failed")
 
     def apply_zram_patches(self):
         if not self.config.use_zram:
+            self._mark("zram_lz4kd", "skipped", "not requested")
             return
         logger.info("=== Applying ZRAM (LZ4KD) patches ===")
         self._chdir(self.work_dir / "common")
@@ -810,26 +859,39 @@ CONFIG_NTSYNC=y
             self._run_cmd("mkdir -p lib/lz4k_oplus", check=False)
             self._run_cmd(f"cp -r {oplus_src}/* lib/lz4k_oplus/", check=False)
         zram_patch_dir = self.sukisu_patch_dir / f"other/zram/zram_patch/{self.config.kernel_version}"
+        zram_ok = True
+        zram_found_any = False
         for patch in ["lz4kd.patch", "lz4k_oplus.patch"]:
             p = zram_patch_dir / patch
             if p.exists():
-                self._run_cmd(f"patch -p1 -F 3 < {p}", check=False)
+                zram_found_any = True
+                result = self._run_cmd(f"patch -p1 -F 3 < {p}", check=False)
+                if result.returncode != 0:
+                    zram_ok = False
+        if not zram_found_any:
+            self._mark("zram_lz4kd", "failed", "no zram patch files found for this kernel version")
+        else:
+            self._mark("zram_lz4kd", "applied" if zram_ok else "failed")
 
     def apply_task_mmu_fixes(self):
         logger.info("=== Applying task_mmu.c fixes ===")
         self._chdir(self.work_dir / "common")
         task_mmu = Path("fs/proc/task_mmu.c")
         if not task_mmu.exists():
+            self._mark("task_mmu_fixes", "skipped", "fs/proc/task_mmu.c not found")
             return
 
+        changed = False
         fb = f"{self.config.android_version}-{self.config.kernel_version}"
         with open(task_mmu, "r") as f:
             content = f.read()
 
         if fb == "android15-6.6" and "unsigned int nr_subpages" not in content:
             self._fix_base_c_header()
+            changed = True
         elif fb == "android14-6.1" and "if (!vma_pages(vma))" not in content:
             self._fix_base_c_header()
+            changed = True
             if "goto show_pad;" in content:
                 content = content.replace("goto show_pad;", "return 0;")
                 with open(task_mmu, "w") as f:
@@ -839,6 +901,7 @@ CONFIG_NTSYNC=y
                 content = content.replace("goto show_pad;", "return 0;")
                 with open(task_mmu, "w") as f:
                     f.write(content)
+                changed = True
 
         with open(task_mmu, "r") as f:
             content = f.read()
@@ -846,6 +909,10 @@ CONFIG_NTSYNC=y
             content = content.replace("struct dentry *dentry;\n", "struct dentry *dentry = NULL;\n")
             with open(task_mmu, "w") as f:
                 f.write(content)
+            changed = True
+
+        self._mark("task_mmu_fixes", "applied" if changed else "skipped",
+                    "" if changed else "not needed on this branch")
 
     def _fix_base_c_header(self):
         base_c = self.work_dir / "common/fs/proc/base.c"
@@ -1386,20 +1453,24 @@ CONFIG_NTSYNC=y
         target_files = [l.strip() for l in (find_result.stdout or "").splitlines() if l.strip()]
         if not target_files:
             logger.warning("Could not find ksud.c - skipping safe-mode patch")
+            self._mark("safemode_disable", "failed", "ksud.c not found")
             return
 
         target = target_files[0]
         patch_src = Path(__file__).parent / "patches" / "disable-safemode-full.patch"
         if not patch_src.exists():
             logger.warning(f"Safe-mode patch file not found at {patch_src} - skipping")
+            self._mark("safemode_disable", "failed", "patch file missing")
             return
 
         result = self._run_cmd(f"patch {target} < {patch_src}", check=False)
         if result.returncode == 0:
             logger.info(f"Safe mode disabled successfully: {target}")
+            self._mark("safemode_disable", "applied")
         else:
             logger.warning(f"Safe-mode patch did not apply cleanly to {target} - "
                           "ksud.c may have changed upstream, continuing without it")
+            self._mark("safemode_disable", "failed", "did not apply cleanly")
 
     def build(self) -> BuildResult:
         import time
@@ -1421,11 +1492,14 @@ CONFIG_NTSYNC=y
             self.add_kernelsu()
             if self.config.disable_safemode:
                 self.apply_safemode_patch()
+            else:
+                self._mark("safemode_disable", "skipped", "not requested")
             self.add_bbg()
             self.apply_susfs_patches()
             self.apply_sukisu_patches()
             self.apply_zram_patches()
             self.apply_task_mmu_fixes()
+            self._write_patch_status()
             self.configure_kernel()
             self.configure_kernel_name()
             self.show_kernel_config()
@@ -1443,4 +1517,11 @@ CONFIG_NTSYNC=y
             return BuildResult(success=True, config=self.config, message="Build succeeded", artifacts=artifacts, build_time=build_time)
         except Exception as e:
             logger.error(f"Error during build: {e}")
+            # Best-effort: persist whatever patch statuses were recorded
+            # before the failure (e.g. a hard-stop SUSFS patch failure),
+            # so the summary table still shows what did/didn't apply.
+            try:
+                self._write_patch_status()
+            except Exception:
+                pass
             return BuildResult(success=False, config=self.config, message=str(e), build_time=time.time() - start_time)
