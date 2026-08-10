@@ -125,6 +125,10 @@ CONFIG_LRU_GEN_ENABLED=y
 # === PSI (Pressure Stall Information) Config ===
 CONFIG_PSI=y
 
+# === Wireguard Config (forced on regardless of the branch's own
+# gki_defconfig default, since not every branch ships it enabled) ===
+CONFIG_WIREGUARD=y
+
 # === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===
 CONFIG_NTSYNC=y
 """
@@ -1211,6 +1215,19 @@ CONFIG_NTSYNC=y
         is_legacy = (self.work_dir / "build/build.sh").exists()
         bazel_cache = Path.home() / ".cache" / "bazel"
 
+        # Known LLVM/ThinLTO verifier bug on Bazel/Kleaf branches (6.6 and
+        # up so far): cross-module inlining under ThinLTO can produce an
+        # inlined call in a function with debug info that's missing a
+        # !dbg location, which trips the IR verifier ("Broken module
+        # found, compilation aborted"). This isn't a LTO=thin-vs-none
+        # question - a known-working reference build on this same branch
+        # doesn't pass --lto at all and lets the Bazel target's own
+        # default win, and that avoids the bug while still getting real
+        # LTO (not a no-LTO fallback). So: force thin explicitly where
+        # it's proven to work, and just omit --lto on branches affected
+        # by this bug so Bazel's target default applies instead.
+        _THIN_LTO_BUG_KERNEL_VERSIONS = ("6.6", "6.12", "6.18")
+
         def _build_cmd() -> str:
             if is_legacy:
                 return "LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
@@ -1226,8 +1243,9 @@ CONFIG_NTSYNC=y
             # code already expects, so no other changes are needed here.
             # --nokmi_symbol_list_strict_mode kept as a defensive no-op in
             # case this target still runs that check on some branch.
+            lto_flag = "" if self.config.kernel_version in _THIN_LTO_BUG_KERNEL_VERSIONS else "--lto=thin "
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
-                    f"--lto=thin --nokmi_symbol_list_strict_mode "
+                    f"{lto_flag}--nokmi_symbol_list_strict_mode "
                     f"--nokmi_symbol_list_violations_check //common:kernel_aarch64/Image")
 
         try:
@@ -1239,9 +1257,10 @@ CONFIG_NTSYNC=y
                 self.remove_protected_exports()
                 bazel_cache.mkdir(parents=True, exist_ok=True)
 
-            # LTO is always thin. No fallback to LTO=none - if thin fails,
-            # the build fails, full stop. Nobody was going to flash a
-            # noLTO build anyway.
+            # No fallback retry on failure - if the build fails, it fails,
+            # full stop. The LTO mode itself is chosen upfront per branch
+            # above (thin where proven, Bazel default where thin is known
+            # to hit the verifier bug), not switched after a failed attempt.
             success, output = self._run_build_command(_build_cmd())
 
             build_seconds = time.time() - start_time
@@ -1425,4 +1444,3 @@ CONFIG_NTSYNC=y
         except Exception as e:
             logger.error(f"Error during build: {e}")
             return BuildResult(success=False, config=self.config, message=str(e), build_time=time.time() - start_time)
-
