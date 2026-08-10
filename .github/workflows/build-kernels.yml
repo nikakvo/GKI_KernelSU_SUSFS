@@ -244,6 +244,13 @@ jobs:
           fi
           # Record build status
           echo "${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}:outcome=${{ job.status }}" >> build-results/status.txt
+          # Copy per-build patch status (written by kernel_builder.py even
+          # on a failed build, best-effort) for the aggregated summary
+          # table in the release job.
+          PATCH_STATUS_SRC=$(find /tmp/gki-build -maxdepth 2 -name "PATCH_STATUS.json" | head -n1)
+          if [ -n "$PATCH_STATUS_SRC" ]; then
+            cp "$PATCH_STATUS_SRC" "build-results/${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}.patches.json"
+          fi
 
       - name: Upload build results
         uses: actions/upload-artifact@v7
@@ -307,6 +314,9 @@ jobs:
           echo "| $TOTAL | $SUCCESS | $FAILED |" >> $GITHUB_STEP_SUMMARY
           echo "=== Status ==="
           cat build-results/status.txt 2>/dev/null || echo "No status file"
+
+      - name: Patch status summary
+        run: python3 ${{ env.SCRIPTS_DIR }}/patch_summary.py build-results "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare release files
         id: prepare-release-files
