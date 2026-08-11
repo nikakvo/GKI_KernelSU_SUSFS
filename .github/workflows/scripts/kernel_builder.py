@@ -346,15 +346,44 @@ CONFIG_NTSYNC=y
     def _checkout_kernel_tag(self, common_dir: Path):
         """Pin kernel/common to a specific respin tag (e.g.
         android13-5.15-2025-12_r10) instead of the moving branch HEAD.
-        repo sync runs with --no-tags, so the tag must be fetched explicitly."""
+        repo sync runs with --no-tags, so the tag must be fetched explicitly.
+
+        Fails the build loudly if the tag doesn't exist upstream or the
+        checkout otherwise fails - silently falling through here would
+        leave the source on whatever repo sync's moving-HEAD checkout
+        happened to be (a real, differently-numbered sub_level), while
+        every downstream filename/version string still confidently
+        labels the build with the WRONG, requested sub_level. A build
+        that silently compiles the wrong kernel and calls it the right
+        one is much worse than a build that fails clearly.
+        """
         tag = self.config.kernel_tag
         logger.info(f"=== Pinning kernel source to tag: {tag} ===")
         self._chdir(common_dir)
-        self._run_cmd(
+        fetch_result = self._run_cmd(
             f"git fetch --depth=1 https://android.googlesource.com/kernel/common "
             f"refs/tags/{tag}:refs/tags/{tag}", check=False)
+        if fetch_result.returncode != 0:
+            self._chdir(self.work_dir)
+            raise RuntimeError(
+                f"kernel_tag '{tag}' could not be fetched from "
+                f"android.googlesource.com/kernel/common - it likely "
+                f"doesn't exist upstream (typo, or not published yet). "
+                f"Refusing to silently continue on the moving branch "
+                f"HEAD, which would compile a DIFFERENT, real sub_level "
+                f"while every artifact filename and on-device version "
+                f"string still claims to be '{self.config.sub_level}'. "
+                f"Verify the tag at https://android.googlesource.com/kernel/common/+refs "
+                f"before retrying."
+            )
         result = self._run_cmd(f"git checkout {tag}", check=False)
         self._chdir(self.work_dir)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"kernel_tag '{tag}' was fetched but 'git checkout {tag}' "
+                f"failed - the ref may be corrupt or ambiguous. Refusing "
+                f"to silently continue on the moving branch HEAD."
+            )
         return result
 
     def _write_scmversion(self):
