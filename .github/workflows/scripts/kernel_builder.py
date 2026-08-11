@@ -179,6 +179,7 @@ CONFIG_NTSYNC=y
             "sub_level": self.config.sub_level,
             "os_patch_level": self.config.os_patch_level,
             "kernel_respin": self.detected_respin or "",
+            "is_lts": self.config.is_lts_build,
             "patches": self.patch_status,
         }
         report_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
@@ -377,6 +378,8 @@ CONFIG_NTSYNC=y
         if not common_dir.exists() or not self.detected_respin:
             return
         respin_suffix = f"-{self.config.android_version}-{self.detected_respin}"
+        if self.config.is_lts_build:
+            respin_suffix += "-lts"
         (common_dir / ".scmversion").write_text(respin_suffix)
         logger.info(f".scmversion written: {respin_suffix}")
 
