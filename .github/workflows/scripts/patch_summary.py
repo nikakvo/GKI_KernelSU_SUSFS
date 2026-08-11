@@ -41,11 +41,15 @@ def load_reports(results_dir: Path) -> list:
 
 
 def load_lts_map(repo_root: Path) -> dict:
-    """Cross-references (android, kernel, sub_level) -> is this build from
-    an LTS-style respin tag (e.g. android13-5.15.209_r00, merged from the
-    upstream Linux -stable tree into the android*-lts branch), so the
-    summary table can flag it. Purely cosmetic - has no effect on the
-    build itself."""
+    """Fallback only, for older PATCH_STATUS.json reports written before
+    kernel_builder.py started recording "is_lts" directly on each report
+    (see build_table below - the report's own field is preferred and
+    unambiguous). This cross-reference by (android, kernel, sub_level) is
+    NOT reliable on its own: a sub_level can legitimately exist twice in
+    matrix.json - once as a regular date-based respin and once as an
+    LTS-merge respin (e.g. dash-style android13-5.15-2026-06_r4 and
+    dot-style android13-5.15.206_r00 can both exist for sub_level 206) -
+    so this map can't tell the two builds apart and would flag both."""
     matrix_path = repo_root / ".github" / "workflows" / "config" / "matrix.json"
     lts_map = {}
     try:
@@ -80,15 +84,22 @@ def build_table(reports: list, lts_map: dict = None) -> str:
     ]
 
     def sort_key(r):
-        return (r.get("android_version", ""), r.get("kernel_version", ""), r.get("sub_level", ""))
+        return (r.get("android_version", ""), r.get("kernel_version", ""), r.get("sub_level", ""), r.get("is_lts", False))
 
     for r in sorted(reports, key=sort_key):
         label = f"{r.get('android_version','?')}-{r.get('kernel_version','?')}.{r.get('sub_level','?')}"
         respin = r.get("kernel_respin")
         if respin:
             label += f" ({respin})"
-        key = (r.get("android_version", ""), r.get("kernel_version", ""), str(r.get("sub_level", "")))
-        if lts_map.get(key):
+        # Prefer the report's own is_lts field (set directly from the
+        # build's actual config, unambiguous) - only fall back to the
+        # matrix.json cross-reference for older reports that predate it.
+        if "is_lts" in r:
+            is_lts = bool(r.get("is_lts"))
+        else:
+            key = (r.get("android_version", ""), r.get("kernel_version", ""), str(r.get("sub_level", "")))
+            is_lts = bool(lts_map.get(key))
+        if is_lts:
             label += " [LTS]"
         row = [label]
         patches = r.get("patches", {})
