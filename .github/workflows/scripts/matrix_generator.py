@@ -31,6 +31,8 @@ def generate_build_matrix() -> list:
                 build["revision"] = cfg["revision"]
             if "kernel_tag" in cfg:
                 build["kernel_tag"] = cfg["kernel_tag"]
+            if cfg.get("lts"):
+                build["lts"] = True
             builds.append(build)
 
     # Sort by Android version and kernel version
@@ -112,7 +114,7 @@ def save_matrix_output():
     for android in sorted(classified.keys(), key=lambda x: int(x.replace("android", ""))):
         md_summary += f"**{android.upper()}**\n\n"
         for kernel, configs in classified[android].items():
-            sub_levels = ", ".join([c["sub_level"] for c in configs])
+            sub_levels = ", ".join([c["sub_level"] + (" (LTS)" if c.get("lts") else "") for c in configs])
             md_summary += f"- {kernel}: {sub_levels}\n"
         md_summary += "\n"
 
