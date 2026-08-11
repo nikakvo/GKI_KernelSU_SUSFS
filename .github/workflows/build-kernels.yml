@@ -213,6 +213,18 @@ jobs:
       - name: Prepare artifacts
         id: prepare-artifacts
         run: |
+          # Unique per-build key: plain android-kernel-sublevel collides
+          # between a regular respin and an LTS-merge respin that happen
+          # to share the same sub_level (e.g. a dash-style 206 AND a
+          # dot-style LTS 206 both exist upstream) - append "-lts" so
+          # every artifact bundle name AND every filename inside
+          # build-results/ stays unique, or the LTS build's files get
+          # silently dropped/overwritten when the release job merges
+          # same-named artifacts back together.
+          BUILD_KEY="${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}"
+          [ "${{ matrix.config.lts }}" = "true" ] && BUILD_KEY="${BUILD_KEY}-lts"
+          echo "build_key=$BUILD_KEY" >> $GITHUB_OUTPUT
+
           mkdir -p artifacts
           find /tmp/gki-build -name "*AnyKernel3*.zip" -type f -exec cp {} artifacts/ \;
           find /tmp/gki-build -name "*-boot.img" -type f -exec cp {} artifacts/ \;
@@ -232,31 +244,32 @@ jobs:
         if: steps.prepare-artifacts.outputs.artifacts_exist == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: kernel-${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}
+          name: kernel-${{ steps.prepare-artifacts.outputs.build_key }}
           path: artifacts/*
 
       - name: Record build result
         if: always()
         run: |
           mkdir -p build-results
+          BUILD_KEY="${{ steps.prepare-artifacts.outputs.build_key || format('{0}-{1}-{2}', matrix.config.android, matrix.config.kernel, matrix.config.sub_level) }}"
           # Copy SHA256SUMS
           if [ -f "SHA256SUMS.txt" ]; then
-            cp SHA256SUMS.txt build-results/${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}.txt
+            cp SHA256SUMS.txt "build-results/${BUILD_KEY}.txt"
           fi
           # Record build status
-          echo "${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}:outcome=${{ job.status }}" >> build-results/status.txt
+          echo "${BUILD_KEY}:outcome=${{ job.status }}" >> "build-results/status-${BUILD_KEY}.txt"
           # Copy per-build patch status (written by kernel_builder.py even
           # on a failed build, best-effort) for the aggregated summary
           # table in the release job.
           PATCH_STATUS_SRC=$(find /tmp/gki-build -maxdepth 2 -name "PATCH_STATUS.json" | head -n1)
           if [ -n "$PATCH_STATUS_SRC" ]; then
-            cp "$PATCH_STATUS_SRC" "build-results/${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}.patches.json"
+            cp "$PATCH_STATUS_SRC" "build-results/${BUILD_KEY}.patches.json"
           fi
 
       - name: Upload build results
         uses: actions/upload-artifact@v7
         with:
-          name: build-results-${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}
+          name: build-results-${{ steps.prepare-artifacts.outputs.build_key || format('{0}-{1}-{2}', matrix.config.android, matrix.config.kernel, matrix.config.sub_level) }}
           path: build-results/
           retention-days: 1
 
@@ -303,6 +316,15 @@ jobs:
         id: prepare-summary
         run: |
           mkdir -p build-results
+          # Every build now writes its own status-<BUILD_KEY>.txt (a single-
+          # line file) instead of all builds appending to one shared
+          # status.txt - once artifact bundle names became unique per
+          # build (see "Prepare artifacts" above) it became possible for
+          # download-artifact's merge-multiple to actually fetch every
+          # bundle, which would otherwise make a single shared filename
+          # collide across bundles at merge time and silently drop all
+          # but one build's status line.
+          cat build-results/status-*.txt > build-results/status.txt 2>/dev/null || touch build-results/status.txt
           echo "=== Build Summary ===" >> $GITHUB_STEP_SUMMARY
           TOTAL=$(cat build-results/status.txt 2>/dev/null | wc -l || echo 0)
           SUCCESS=$(grep ':outcome=success$' build-results/status.txt 2>/dev/null | wc -l || echo 0)
