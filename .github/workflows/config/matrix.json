@@ -48,8 +48,8 @@
         {"sub_level": "197", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.197_r00", "lts": true, "enabled": false},
         {"sub_level": "199", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.199_r00", "lts": true, "enabled": false},
         {"sub_level": "202", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.202_r00", "lts": true, "enabled": false},
-        {"sub_level": "206", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15-2026-06_r4", "enabled": false},
-        {"sub_level": "206", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.206_r00", "lts": true, "enabled": false},
+        {"sub_level": "206", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15-2026-06_r4", "enabled": true},
+        {"sub_level": "206", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.206_r00", "lts": true, "enabled": true},
         {"sub_level": "208", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.208_r00", "lts": true, "enabled": true},
         {"sub_level": "209", "os_patch_level": "2026-06", "kernel_tag": "android13-5.15.209_r00", "lts": true, "enabled": true}
     ],
