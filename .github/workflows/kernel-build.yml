@@ -200,6 +200,19 @@ jobs:
 
           echo "kernel_tag=$RESOLVED" >> "$GITHUB_OUTPUT"
 
+          # Purely cosmetic: if this sub_level/os_patch is already in
+          # matrix.json and flagged "lts": true (an LTS-merge respin tag,
+          # e.g. android13-5.15.209_r00, rather than a regular date-based
+          # one), carry that through so the output filename gets a "-lts"
+          # marker - otherwise users downloading the artifact have no way
+          # to tell it apart from a normal respin at a glance.
+          IS_LTS=$(jq -r --arg key "${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}" \
+                         --arg sub "${{ github.event.inputs.sub_level }}" \
+                         --arg patch "${{ github.event.inputs.os_patch_level }}" \
+            '.[$key][]? | select((.sub_level|tostring) == $sub and .os_patch_level == $patch) | .lts // false' \
+            .github/workflows/config/matrix.json 2>/dev/null | head -n1)
+          echo "is_lts=$IS_LTS" >> "$GITHUB_OUTPUT"
+
       - name: Build kernel
         run: |
           cd ./.github/workflows/scripts
@@ -210,6 +223,7 @@ jobs:
           ARGS="$ARGS --os-patch ${{ github.event.inputs.os_patch_level }}"
           [ -n "${{ github.event.inputs.revision }}" ] && ARGS="$ARGS --revision ${{ github.event.inputs.revision }}"
           [ -n "${{ steps.resolve-tag.outputs.kernel_tag }}" ] && ARGS="$ARGS --kernel-tag ${{ steps.resolve-tag.outputs.kernel_tag }}"
+          [ "${{ steps.resolve-tag.outputs.is_lts }}" = "true" ] && ARGS="$ARGS --lts"
           ARGS="$ARGS --ksu-version ${{ github.event.inputs.kernelsu_version }}"
 
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
