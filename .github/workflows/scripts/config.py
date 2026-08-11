@@ -123,6 +123,7 @@ class BuildConfig:
     kernel_tag: Optional[str] = None
     disable_safemode: bool = False
     build_id: Optional[str] = None
+    is_lts_build: bool = False
 
     def __post_init__(self):
         self._validate_android_version()
