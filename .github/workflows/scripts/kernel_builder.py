@@ -454,7 +454,10 @@ CONFIG_NTSYNC=y
 
     @property
     def respin_suffix(self) -> str:
-        return f"-{self.detected_respin}" if self.detected_respin else ""
+        suffix = f"-{self.detected_respin}" if self.detected_respin else ""
+        if self.config.is_lts_build:
+            suffix += "-lts"
+        return suffix
 
 
     def _apply_legacy_fixes(self, remote_branch: str = ""):
