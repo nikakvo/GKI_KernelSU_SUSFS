@@ -46,6 +46,11 @@ KERNEL_VERSION="5.15"
 SUB_LEVEL="206"
 OS_PATCH="2026-06"
 KERNEL_TAG="android13-5.15-2026-06_r4"
+# Set to "1" if KERNEL_TAG above is an LTS-merge respin (e.g.
+# android13-5.15.209_r00, dotted sub_level style) rather than a regular
+# date-based one (e.g. android13-5.15-2026-06_r4) - adds a "-lts" marker
+# to the output filename so it's clear at a glance where it came from.
+IS_LTS=""
 
 # ============================================================
 #  Dependency check / auto-install
@@ -118,7 +123,7 @@ if [ "$BUILD_OPTION" == "3" ]; then
     echo "Reading configurations from: $MATRIX_FILE"
     echo ""
 
-    # android|kernel|sub_level|os_patch|revision|kernel_tag, one line per configuration
+    # android|kernel|sub_level|os_patch|revision|kernel_tag|lts, one line per configuration
     mapfile -t CONFIGS < <(python3 -c "
 import json
 with open('$MATRIX_FILE') as f:
@@ -128,7 +133,7 @@ for key, entries in data.items():
     for e in entries:
         if not e.get('enabled', True):
             continue
-        print(f\"{android}|{kernel}|{e['sub_level']}|{e['os_patch_level']}|{e.get('revision', '')}|{e.get('kernel_tag', '')}\")
+        print(f\"{android}|{kernel}|{e['sub_level']}|{e['os_patch_level']}|{e.get('revision', '')}|{e.get('kernel_tag', '')}|{'1' if e.get('lts') else ''}\")
 ")
 
     TOTAL=${#CONFIGS[@]}
@@ -139,8 +144,8 @@ for key, entries in data.items():
 
     echo "Found $TOTAL configuration(s) to build:"
     for line in "${CONFIGS[@]}"; do
-        IFS='|' read -r a k s p r t <<< "$line"
-        echo "  - $a-$k-$s ($p)"
+        IFS='|' read -r a k s p r t lts <<< "$line"
+        echo "  - $a-$k-$s ($p)$( [ -n "$lts" ] && echo ' [LTS]')"
     done
     echo ""
     read -rp "Continue with all $TOTAL build(s)? (y/n) " confirm
@@ -152,7 +157,7 @@ for key, entries in data.items():
     N=0
 
     for line in "${CONFIGS[@]}"; do
-        IFS='|' read -r a k s p r t <<< "$line"
+        IFS='|' read -r a k s p r t lts <<< "$line"
         N=$((N + 1))
         echo ""
         echo "========================================"
@@ -166,6 +171,7 @@ for key, entries in data.items():
         # so this matches the known-working respin the matrix was updated
         # from - not whatever Google has pushed to the branch since.
         [ -n "$t" ] && EXTRA_ARGS+=(--kernel-tag "$t")
+        [ -n "$lts" ] && EXTRA_ARGS+=(--lts)
 
         if python3 build.py \
             --android "$a" \
@@ -233,6 +239,7 @@ echo ""
 
 EXTRA_ARGS=()
 [ -n "$KERNEL_TAG" ] && EXTRA_ARGS+=(--kernel-tag "$KERNEL_TAG")
+[ -n "$IS_LTS" ] && EXTRA_ARGS+=(--lts)
 
 python3 build.py \
     --android "$ANDROID_VERSION" \
