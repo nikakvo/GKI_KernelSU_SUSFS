@@ -40,7 +40,28 @@ def load_reports(results_dir: Path) -> list:
     return reports
 
 
-def build_table(reports: list) -> str:
+def load_lts_map(repo_root: Path) -> dict:
+    """Cross-references (android, kernel, sub_level) -> is this build from
+    an LTS-style respin tag (e.g. android13-5.15.209_r00, merged from the
+    upstream Linux -stable tree into the android*-lts branch), so the
+    summary table can flag it. Purely cosmetic - has no effect on the
+    build itself."""
+    matrix_path = repo_root / ".github" / "workflows" / "config" / "matrix.json"
+    lts_map = {}
+    try:
+        matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+        for key, configs in matrix.items():
+            android, kernel = key.split("-", 1)
+            for cfg in configs:
+                if cfg.get("lts"):
+                    lts_map[(android, kernel, str(cfg.get("sub_level")))] = True
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return lts_map
+
+
+def build_table(reports: list, lts_map: dict = None) -> str:
+    lts_map = lts_map or {}
     if not reports:
         return "_No patch status data available for this run._\n"
 
@@ -66,6 +87,9 @@ def build_table(reports: list) -> str:
         respin = r.get("kernel_respin")
         if respin:
             label += f" ({respin})"
+        key = (r.get("android_version", ""), r.get("kernel_version", ""), str(r.get("sub_level", "")))
+        if lts_map.get(key):
+            label += " [LTS]"
         row = [label]
         patches = r.get("patches", {})
         for key in ordered_keys:
@@ -91,11 +115,16 @@ def main():
         print("Usage: patch_summary.py <dir-with-*.patches.json> [output.md]", file=sys.stderr)
         return 1
     results_dir = Path(sys.argv[1])
+    # Independent of cwd (this script is invoked from different working
+    # directories across the two workflows) - locate the repo root from
+    # this file's own path: <repo_root>/.github/workflows/scripts/patch_summary.py
+    repo_root = Path(__file__).resolve().parents[3]
+    lts_map = load_lts_map(repo_root)
     if not results_dir.exists():
         print(f"No such directory: {results_dir}", file=sys.stderr)
-        table = build_table([])
+        table = build_table([], lts_map)
     else:
-        table = build_table(load_reports(results_dir))
+        table = build_table(load_reports(results_dir), lts_map)
 
     print("=== Patch Status ===")
     print(table)
