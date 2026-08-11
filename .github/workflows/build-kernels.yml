@@ -179,6 +179,7 @@ jobs:
           ARGS="$ARGS --os-patch ${{ matrix.config.os_patch }}"
           [ -n "${{ matrix.config.revision }}" ] && ARGS="$ARGS --revision ${{ matrix.config.revision }}"
           [ -n "${{ matrix.config.kernel_tag }}" ] && ARGS="$ARGS --kernel-tag ${{ matrix.config.kernel_tag }}"
+          [ "${{ matrix.config.lts }}" = "true" ] && ARGS="$ARGS --lts"
           ARGS="$ARGS --ksu-version ${{ github.event.inputs.kernelsu_version }}"
           ARGS="$ARGS --no-release"
 
