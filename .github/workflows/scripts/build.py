@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-safemode", action="store_true",
                         help="Permanently disable KernelSU/SukiSU volume-key safe-mode detection "
                              "(most users rely on Yet Another Bootloop Protector instead)")
+    parser.add_argument("--lts", action="store_true",
+                        help="Mark this build as sourced from an LTS-merge respin tag "
+                             "(e.g. android13-5.15.209_r00) - adds a '-lts' marker to the "
+                             "output filenames so downstream users can tell it apart from a "
+                             "regular date-based respin at a glance")
     parser.add_argument("--list-configs", action="store_true")
     parser.add_argument("--workspace", "-w", default=os.environ.get("GKI_WORKSPACE", "/tmp/gki-build"))
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -84,6 +89,7 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         revision=args.revision,
         kernel_tag=args.kernel_tag,
         disable_safemode=args.disable_safemode,
+        is_lts_build=args.lts,
     )
 
 
