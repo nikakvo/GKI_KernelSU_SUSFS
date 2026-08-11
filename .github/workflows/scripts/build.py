@@ -51,7 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--revision")
     parser.add_argument("--kernel-tag", default=None,
                         help="Pin kernel/common to a specific respin tag (e.g. android13-5.15-2025-12_r10) "
-                             "instead of the moving branch HEAD")
+                             "OR a raw commit SHA (7-40 hex chars, e.g. 12b3f6828b67824c794e422d5785dba6eb559bb2) "
+                             "instead of the moving branch HEAD. A SHA is useful when an LTS-merge commit has "
+                             "landed upstream but Google hasn't cut the official _r00 tag for it yet.")
     parser.add_argument("--disable-safemode", action="store_true",
                         help="Permanently disable KernelSU/SukiSU volume-key safe-mode detection "
                              "(most users rely on Yet Another Bootloop Protector instead)")
