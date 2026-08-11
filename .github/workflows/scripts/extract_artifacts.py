@@ -65,7 +65,7 @@ def process_artifacts(artifacts_dir: str, output_dir: str, build_results_dir: st
         sha256sums = []
         for txt_file in glob.glob(os.path.join(build_results_dir, '*.txt')):
             basename = os.path.basename(txt_file)
-            if basename == 'status.txt':
+            if basename == 'status.txt' or basename.startswith('status-'):
                 continue
             try:
                 with open(txt_file, 'r') as f:
