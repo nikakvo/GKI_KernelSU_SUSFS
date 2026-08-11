@@ -344,22 +344,56 @@ CONFIG_NTSYNC=y
         logger.info("=== Kernel source sync complete ===")
 
     def _checkout_kernel_tag(self, common_dir: Path):
-        """Pin kernel/common to a specific respin tag (e.g.
-        android13-5.15-2025-12_r10) instead of the moving branch HEAD.
-        repo sync runs with --no-tags, so the tag must be fetched explicitly.
+        """Pin kernel/common to a specific respin (e.g.
+        android13-5.15-2025-12_r10) OR a raw commit SHA. repo sync runs
+        with --no-tags, so a tag must be fetched explicitly; a SHA is
+        fetched directly since it's not a ref at all.
 
-        Fails the build loudly if the tag doesn't exist upstream or the
-        checkout otherwise fails - silently falling through here would
-        leave the source on whatever repo sync's moving-HEAD checkout
-        happened to be (a real, differently-numbered sub_level), while
-        every downstream filename/version string still confidently
+        SHA support exists because Google sometimes lands an LTS-merge
+        commit (e.g. "Merge 5.15.211 into android13-5.15-lts") on the
+        branch well before cutting the corresponding official
+        "androidX-Y.YY.NNN_r00" tag for it - a SHA lets a build pin that
+        exact commit immediately instead of waiting on the tag.
+
+        Fails the build loudly if the tag/SHA doesn't exist upstream or
+        the checkout otherwise fails - silently falling through here
+        would leave the source on whatever repo sync's moving-HEAD
+        checkout happened to be (a real, differently-numbered sub_level),
+        while every downstream filename/version string still confidently
         labels the build with the WRONG, requested sub_level. A build
         that silently compiles the wrong kernel and calls it the right
         one is much worse than a build that fails clearly.
         """
-        tag = self.config.kernel_tag
-        logger.info(f"=== Pinning kernel source to tag: {tag} ===")
+        ref = self.config.kernel_tag
         self._chdir(common_dir)
+
+        if self._is_commit_sha(ref):
+            logger.info(f"=== Pinning kernel source to commit SHA: {ref} ===")
+            fetch_result = self._run_cmd(
+                f"git fetch --depth=1 https://android.googlesource.com/kernel/common {ref}",
+                check=False)
+            if fetch_result.returncode != 0:
+                self._chdir(self.work_dir)
+                raise RuntimeError(
+                    f"kernel_tag '{ref}' looks like a commit SHA but could "
+                    f"not be fetched from android.googlesource.com/kernel/common "
+                    f"- it may not exist, be too short/ambiguous, or not yet "
+                    f"be reachable from a branch the server exposes for "
+                    f"direct SHA fetch. Refusing to silently continue on "
+                    f"the moving branch HEAD."
+                )
+            result = self._run_cmd("git checkout FETCH_HEAD", check=False)
+            self._chdir(self.work_dir)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"commit SHA '{ref}' was fetched but 'git checkout "
+                    f"FETCH_HEAD' failed. Refusing to silently continue "
+                    f"on the moving branch HEAD."
+                )
+            return result
+
+        tag = ref
+        logger.info(f"=== Pinning kernel source to tag: {tag} ===")
         fetch_result = self._run_cmd(
             f"git fetch --depth=1 https://android.googlesource.com/kernel/common "
             f"refs/tags/{tag}:refs/tags/{tag}", check=False)
@@ -368,7 +402,9 @@ CONFIG_NTSYNC=y
             raise RuntimeError(
                 f"kernel_tag '{tag}' could not be fetched from "
                 f"android.googlesource.com/kernel/common - it likely "
-                f"doesn't exist upstream (typo, or not published yet). "
+                f"doesn't exist upstream (typo, not published yet, or "
+                f"only landed as a commit so far without an official "
+                f"tag - in that case pass the commit SHA instead). "
                 f"Refusing to silently continue on the moving branch "
                 f"HEAD, which would compile a DIFFERENT, real sub_level "
                 f"while every artifact filename and on-device version "
@@ -385,6 +421,14 @@ CONFIG_NTSYNC=y
                 f"to silently continue on the moving branch HEAD."
             )
         return result
+
+    @staticmethod
+    def _is_commit_sha(value: str) -> bool:
+        """True for a bare git commit SHA (short or full, 7-40 hex
+        chars) - as opposed to a tag name like
+        'android13-5.15-2026-06_r4' or 'android13-5.15.211_r00', which
+        always contain non-hex characters ('android', '-', '_')."""
+        return bool(re.fullmatch(r"[0-9a-fA-F]{7,40}", value))
 
     def _write_scmversion(self):
         """Writes the exact desired release suffix directly into
@@ -404,9 +448,13 @@ CONFIG_NTSYNC=y
         tracks HEAD still gets a clean "-r10"-style suffix instead of
         git's default raw commit-hash suffix (e.g. "-8-gd37b0095da55")."""
         common_dir = self.work_dir / "common"
-        if not common_dir.exists() or not self.detected_respin:
+        if not common_dir.exists():
             return
-        respin_suffix = f"-{self.config.android_version}-{self.detected_respin}"
+        if not self.detected_respin and not self.config.is_lts_build:
+            return
+        respin_suffix = f"-{self.config.android_version}"
+        if self.detected_respin:
+            respin_suffix += f"-{self.detected_respin}"
         if self.config.is_lts_build:
             respin_suffix += "-lts"
         (common_dir / ".scmversion").write_text(respin_suffix)
@@ -434,6 +482,22 @@ CONFIG_NTSYNC=y
             return
 
         if self.config.kernel_tag:
+            if self._is_commit_sha(self.config.kernel_tag):
+                # No official respin tag exists yet for a raw-SHA pin by
+                # definition, so there's no clean "rNN" number to show.
+                # Leave detected_respin unset rather than stuffing the
+                # commit hash into every filename and on-device version
+                # string - respin_suffix/_write_scmversion already fall
+                # back to just "-lts" (still is_lts_build=True) when
+                # this is None, which is short and honest without being
+                # unreadable. The commit itself is still logged here for
+                # anyone who needs to trace exactly what was built.
+                logger.info(
+                    f"Kernel pinned to commit SHA {self.config.kernel_tag} "
+                    f"(no official respin tag yet) - filenames will use "
+                    f"just the sub_level/os_patch/-lts, no respin number"
+                )
+                return
             m = re.search(r'_(r\d+)$', self.config.kernel_tag)
             if m:
                 self.detected_respin = m.group(1)
