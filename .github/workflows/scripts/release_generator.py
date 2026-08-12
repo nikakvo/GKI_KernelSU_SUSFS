@@ -41,6 +41,7 @@ class ReleaseGenerator:
     def generate_body(self) -> str:
         return f"""## Features
 - SUSFS v2.2.0
+- KPM Support (Kernel Patch Module)
 - Manual Syscall Hooks
 - Magic Mount Support
 - BBR v1 Support
@@ -59,6 +60,12 @@ class ReleaseGenerator:
 ## Detailed explanation
 
 - **SUSFS v2.2.0** — Addon for hiding root using kernel-level patches combined with a userspace module (hides suspicious paths, mount points, spoofs kernel stats/uname/cmdline, and more).
+
+- **KPM Support (Kernel Patch Module)** — SukiSU KPM support is built into the kernel, allowing compatible KPM modules to be loaded at runtime.
+  ```
+  su -c "cat /proc/kallsyms | grep sukisu_kpm_version"
+  ```
+  Active if `sukisu_kpm_version` is listed.
 
 - **Manual Syscall Hooks** — Low-level syscall interception method used for root management and detection evasion, offering finer control than standard hooking approaches.
 
