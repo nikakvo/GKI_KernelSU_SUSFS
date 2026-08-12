@@ -62,6 +62,25 @@ TAG_RE = re.compile(r'^(android1[2-7])-(5\.10|5\.15|6\.1|6\.6|6\.12|6\.18)-(\d{4
 # not a unique key across the two schemes.
 DOT_TAG_RE = re.compile(r'^(android1[2-7])-(5\.10|5\.15|6\.1|6\.6|6\.12|6\.18)\.(\d+)_r(\d+)$')
 
+# A raw commit SHA (kernel_builder.py accepts this as a kernel_tag value
+# to pin an LTS-merge commit before Google has cut its official _r00
+# tag - see kernel_builder.py's _is_commit_sha). It's just as much an
+# "LTS-identity" (unique per sub_level, NOT per os_patch_level) as a
+# DOT_TAG_RE match is - a kernel_tag that's a SHA must never be treated
+# as a dash-style entry (keyed by os_patch_level) here, or it collides
+# with whatever dash-style respin happens to share that same rough date
+# window and gets silently overwritten/downgraded by it.
+_SHA_RE = re.compile(r'^[0-9a-fA-F]{7,40}$')
+
+
+def is_lts_style_tag(kernel_tag: str) -> bool:
+    """True if this kernel_tag identifies an LTS-merge build - either a
+    dot-style official tag or a raw SHA pinned ahead of one - as opposed
+    to a regular dash-style date-based respin tag. Determines which
+    identity (sub_level vs os_patch_level) this entry must be matched/
+    updated by in main() below."""
+    return bool(DOT_TAG_RE.match(kernel_tag) or _SHA_RE.match(kernel_tag))
+
 # Dot-style tags carry no date, so the --months window can't filter them.
 # Instead: only ever consider the N highest sub_levels found per
 # (android, kernel) - keeps a fresh run from importing years of LTS
@@ -252,8 +271,8 @@ def main():
         # window as the current dash-style respin, so keying everything
         # by os_patch_level made unrelated entries silently collide and
         # overwrite one another.
-        dash_by_patch = {e["os_patch_level"]: e for e in entries if not DOT_TAG_RE.match(e.get("kernel_tag", ""))}
-        dot_by_sub = {str(e["sub_level"]): e for e in entries if DOT_TAG_RE.match(e.get("kernel_tag", ""))}
+        dash_by_patch = {e["os_patch_level"]: e for e in entries if not is_lts_style_tag(e.get("kernel_tag", ""))}
+        dot_by_sub = {str(e["sub_level"]): e for e in entries if is_lts_style_tag(e.get("kernel_tag", ""))}
 
         # --- dash-style (date-based) respins ---
         for patch, (respin, tag) in sorted(latest.get((android, kernel), {}).items()):
@@ -338,7 +357,16 @@ def main():
         for e in entries:
             if not e.get("enabled"):
                 continue
-            is_dot = DOT_TAG_RE.match(e.get("kernel_tag", ""))
+            tag = e.get("kernel_tag", "")
+            if _SHA_RE.match(tag):
+                # SHA-pinned entries are inherently unofficial - they'll
+                # never show up in the official tag list until Google
+                # cuts a real _r00 for that sub_level, so "not found
+                # among current tags" is expected here, not a warning
+                # sign. (The update loop above will silently upgrade it
+                # to the real tag automatically once one appears.)
+                continue
+            is_dot = is_lts_style_tag(tag)
             still_active = (str(e["sub_level"]) in active_lts_subs) if is_dot else (e["os_patch_level"] in active_patches)
             if not still_active:
                 warnings.append(
