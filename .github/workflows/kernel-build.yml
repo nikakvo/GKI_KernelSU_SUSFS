@@ -85,6 +85,11 @@ on:
         required: true
         type: boolean
         default: false
+      DROIDSPACES:
+        description: 'Enable Droidspaces container-runtime support (namespaces for full Linux distros - see README) - android12/13/14 (5.10/5.15/6.1) only'
+        required: true
+        type: boolean
+        default: false
       supp_op:
         description: 'Enable OnePlus 8E support'
         required: true
@@ -229,6 +234,7 @@ jobs:
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
+          [ "${{ github.event.inputs.DROIDSPACES }}" = "true" ] && ARGS="$ARGS --droidspaces"
           [ "${{ github.event.inputs.supp_op }}" = "true" ] && ARGS="$ARGS --op8e"
           [ "${{ github.event.inputs.enable_ksm }}" = "true" ] && ARGS="$ARGS --ksm"
           [ "${{ github.event.inputs.disable_safemode }}" = "true" ] && ARGS="$ARGS --disable-safemode"
