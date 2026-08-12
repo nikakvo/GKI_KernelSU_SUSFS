@@ -43,6 +43,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zram", action="store_true")
     parser.add_argument("--no-kpm", action="store_true")
     parser.add_argument("--bbg", action="store_true")
+    parser.add_argument("--droidspaces", action="store_true",
+                        help="Enable Droidspaces (github.com/ravindu644/Droidspaces-OSS) container-runtime "
+                             "support - real Linux namespace isolation (PID/IPC/Mount) instead of a plain "
+                             "chroot, so a full distro can run its own init (systemd/OpenRC). Only wired up "
+                             "for kernel 5.10/5.15/6.1 (android12/13/14) so far.")
     parser.add_argument("--op8e", action="store_true")
     parser.add_argument("--ksm", action="store_true", help="Enable KSM (Kernel Samepage Merging)")
     parser.add_argument("--bbr-version", choices=["none", "bbr1", "bbr3"], default="bbr1")
@@ -83,6 +88,7 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         use_zram=args.zram,
         use_kpm=not args.no_kpm,
         use_bbg=args.bbg,
+        use_droidspaces=args.droidspaces,
         support_op8e=args.op8e,
         enable_ksm=args.ksm,
         bbr_version=args.bbr_version,
