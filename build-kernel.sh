@@ -51,6 +51,10 @@ KERNEL_TAG="android13-5.15-2026-06_r4"
 # date-based one (e.g. android13-5.15-2026-06_r4) - adds a "-lts" marker
 # to the output filename so it's clear at a glance where it came from.
 IS_LTS=""
+# Set to "1" to enable Droidspaces container-runtime support (real
+# Linux namespace isolation - see README's "Droidspaces" section).
+# Only wired up for android12-5.10/android13-5.15/android14-6.1 so far.
+DROIDSPACES=""
 
 # ============================================================
 #  Dependency check / auto-install
@@ -172,6 +176,7 @@ for key, entries in data.items():
         # from - not whatever Google has pushed to the branch since.
         [ -n "$t" ] && EXTRA_ARGS+=(--kernel-tag "$t")
         [ -n "$lts" ] && EXTRA_ARGS+=(--lts)
+        [ -n "$DROIDSPACES" ] && EXTRA_ARGS+=(--droidspaces)
 
         if python3 build.py \
             --android "$a" \
@@ -240,6 +245,7 @@ echo ""
 EXTRA_ARGS=()
 [ -n "$KERNEL_TAG" ] && EXTRA_ARGS+=(--kernel-tag "$KERNEL_TAG")
 [ -n "$IS_LTS" ] && EXTRA_ARGS+=(--lts)
+[ -n "$DROIDSPACES" ] && EXTRA_ARGS+=(--droidspaces)
 
 python3 build.py \
     --android "$ANDROID_VERSION" \
