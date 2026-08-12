@@ -26,6 +26,7 @@ DISPLAY_NAMES = {
     "task_mmu_fixes": "task_mmu.c Fixes",
     "safemode_disable": "Safe Mode Disabled",
     "baseband_guard": "Baseband-guard",
+    "droidspaces": "Droidspaces",
 }
 PREFERRED_ORDER = list(DISPLAY_NAMES.keys())
 
