@@ -179,7 +179,7 @@ CONFIG_NTSYNC=y
             "sub_level": self.config.sub_level,
             "os_patch_level": self.config.os_patch_level,
             "kernel_respin": self.detected_respin or "",
-            "is_lts": self.config.is_lts_build,
+            "is_lts": self.is_lts_build,
             "patches": self.patch_status,
         }
         report_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
@@ -430,6 +430,38 @@ CONFIG_NTSYNC=y
         always contain non-hex characters ('android', '-', '_')."""
         return bool(re.fullmatch(r"[0-9a-fA-F]{7,40}", value))
 
+    # Matches the newer per-sublevel LTS-merge tag scheme
+    # (android13-5.15.209_r00) - as opposed to the older date-based
+    # scheme (android13-5.15-2026-06_r4). The dot right before the
+    # sub_level number is what distinguishes the two; the dash scheme
+    # never has a literal dot there.
+    _LTS_DOT_TAG_RE = re.compile(r'^android1[2-7]-\d+\.\d+\.\d+_r\d+$')
+
+    @property
+    def is_lts_build(self) -> bool:
+        """Whether this build is sourced from an LTS-merge respin,
+        for filename/on-device-version purposes (the "-lts" marker).
+
+        Auto-detected from the kernel_tag's own format whenever
+        possible - a raw commit SHA or a dot-style tag can ONLY come
+        from the LTS scheme, so inferring it here means correctness
+        doesn't depend on a human also remembering to flip a separate
+        --lts flag/matrix.json field in sync with kernel_tag (which is
+        exactly what caused two real builds to come out unmarked -
+        --lts / matrix.json's "lts" was left at its default while only
+        kernel_tag got updated). config.is_lts_build (the explicit
+        flag) is still honored as an override for edge cases, but is no
+        longer load-bearing for the common case.
+        """
+        if self.config.is_lts_build:
+            return True
+        tag = self.config.kernel_tag or ""
+        if self._is_commit_sha(tag):
+            return True
+        if self._LTS_DOT_TAG_RE.match(tag):
+            return True
+        return False
+
     def _write_scmversion(self):
         """Writes the exact desired release suffix directly into
         .scmversion. setlocalversion uses this file's content verbatim
@@ -450,12 +482,12 @@ CONFIG_NTSYNC=y
         common_dir = self.work_dir / "common"
         if not common_dir.exists():
             return
-        if not self.detected_respin and not self.config.is_lts_build:
+        if not self.detected_respin and not self.is_lts_build:
             return
         respin_suffix = f"-{self.config.android_version}"
         if self.detected_respin:
             respin_suffix += f"-{self.detected_respin}"
-        if self.config.is_lts_build:
+        if self.is_lts_build:
             respin_suffix += "-lts"
         (common_dir / ".scmversion").write_text(respin_suffix)
         logger.info(f".scmversion written: {respin_suffix}")
@@ -551,7 +583,7 @@ CONFIG_NTSYNC=y
     @property
     def respin_suffix(self) -> str:
         suffix = f"-{self.detected_respin}" if self.detected_respin else ""
-        if self.config.is_lts_build:
+        if self.is_lts_build:
             suffix += "-lts"
         return suffix
 
