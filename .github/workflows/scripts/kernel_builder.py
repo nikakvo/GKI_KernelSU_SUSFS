@@ -619,17 +619,55 @@ CONFIG_NTSYNC=y
                 f.write("obj-y += hmbird_patch.o\n")
 
     def add_kernelsu(self):
+        """Pulls in SukiSU-Ultra's kernel-side driver source.
+
+        self.config.kernelsu_commit is a git ref - a tag (e.g. 'v4.1.3'),
+        branch, or commit hash all work identically here, since it's
+        used directly in a raw.githubusercontent.com URL and a plain
+        'git checkout'. Note this pins the driver SOURCE only - it has
+        no bearing on the Manager APP's displayed version, which is a
+        separate artifact (see the README's "Pinning SukiSU-Ultra"
+        section for why 'Manager version (40856-2)' specifically can't
+        be pinned this way).
+
+        Fails loudly if the ref doesn't exist, for the same reason
+        _checkout_kernel_tag() does: silently falling back to whatever
+        setup.sh's default branch happens to be would build a real, but
+        DIFFERENT, KernelSU/SukiSU-Ultra version while the build still
+        claims to be the one that was asked for.
+        """
         logger.info("=== Adding KernelSU ===")
         self._chdir(self.work_dir)
         setup_url = (f"https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/{self.config.kernelsu_commit}/kernel/setup.sh"
                     if self.config.kernelsu_commit else KSU_REPO_CONFIG["setup_script"])
-        self._run_cmd(f"curl -LSs {setup_url} | bash -s builtin", check=False)
+        result = self._run_cmd(f"curl -LSsf {setup_url} | bash -s builtin", check=False)
+        if self.config.kernelsu_commit and result.returncode != 0:
+            raise RuntimeError(
+                f"kernelsu_commit '{self.config.kernelsu_commit}' could not be "
+                f"fetched from raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra "
+                f"- it likely doesn't exist (typo, or not a real tag/branch/commit). "
+                f"Refusing to silently fall back to the default setup script. "
+                f"Check available tags at https://github.com/SukiSU-Ultra/SukiSU-Ultra/tags"
+            )
         if self.config.kernelsu_commit:
             ksu_dir = self.work_dir / "KernelSU"
-            if ksu_dir.exists():
-                self._chdir(ksu_dir)
-                self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
-                self._chdir(self.work_dir)
+            if not ksu_dir.exists():
+                raise RuntimeError(
+                    f"kernelsu_commit '{self.config.kernelsu_commit}' was set, but "
+                    f"the setup script didn't produce a KernelSU/ directory to pin "
+                    f"- can't verify the checkout landed on the right ref."
+                )
+            self._chdir(ksu_dir)
+            checkout_result = self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
+            self._chdir(self.work_dir)
+            if checkout_result.returncode != 0:
+                raise RuntimeError(
+                    f"kernelsu_commit '{self.config.kernelsu_commit}' was fetched "
+                    f"via setup.sh but 'git checkout {self.config.kernelsu_commit}' "
+                    f"failed inside KernelSU/ - the ref may not be reachable from "
+                    f"the clone setup.sh made. Refusing to silently continue on "
+                    f"whatever ref setup.sh left it on."
+                )
 
     # Upstream Linux changed ptrace_notify()'s signature in 5.16 to pass
     # the event message as an explicit argument instead of stashing it in
@@ -721,6 +759,145 @@ CONFIG_NTSYNC=y
             with open(kconfig_file, "w") as f:
                 f.write(content)
         self._mark("baseband_guard", "applied")
+
+    def apply_droidspaces_support(self):
+        """Enables Droidspaces (github.com/ravindu644/Droidspaces-OSS)
+        container-runtime support: real Linux namespace isolation
+        (PID/IPC/Mount) so a full Linux distro can run its own init
+        system (systemd/OpenRC) as an actual isolated container,
+        instead of a plain chroot that just shares the host's process
+        tree.
+
+        GKI enforces a strict kABI checksum on struct layouts. Just
+        flipping on CONFIG_SYSVIPC/CONFIG_IPC_NS/CONFIG_POSIX_MQUEUE in
+        defconfig shifts struct task_struct's layout and causes an
+        IMMEDIATE BOOTLOOP - these patches instead move the relevant
+        fields into Android's already-reserved kABI padding slots
+        (ANDROID_KABI_RESERVE(N) -> ANDROID_KABI_USE(N, ...)) so the
+        checksum doesn't move.
+
+        Upstream ships 3 variants of the SYSVIPC patch, each claiming a
+        different trio of reserve slots (6/7/8, 3/4/5, or 1/2/3) -
+        because which slots are still free (not already claimed by
+        something else on a given branch) isn't the same across every
+        respin. Rather than hardcoding a guess, this tries all 3 in
+        order (dry-run first, strict context matching - fuzzy matching
+        here risks a false-positive "clean" apply against the WRONG
+        slots, which would silently break kABI in a different way) and
+        applies the first one that actually fits this exact source tree.
+
+        Only wired up for kernel_version < 6.12 (android12-5.10,
+        android13-5.15, android14-6.1 - the branches this project
+        currently builds). 6.12+ needs a structurally different patch
+        (extra EXPORT_SYMBOL_GPL calls instead of kABI reserve slots)
+        that isn't vendored here yet.
+        """
+        if not self.config.use_droidspaces:
+            self._mark("droidspaces", "skipped", "not requested")
+            return
+        if self.config.kernel_version not in ("5.10", "5.15", "6.1"):
+            logger.warning(
+                f"Droidspaces support requested but not implemented yet for "
+                f"kernel {self.config.kernel_version} (only 5.10/5.15/6.1 are "
+                f"wired up) - skipping"
+            )
+            self._mark("droidspaces", "skipped", f"kernel {self.config.kernel_version} not supported yet")
+            return
+
+        logger.info("=== Applying Droidspaces container-runtime support ===")
+        common_dir = self.work_dir / "common"
+        if not common_dir.exists():
+            self._mark("droidspaces", "failed", "common/ missing")
+            return
+
+        patch_dir = Path(__file__).parent / "patches"
+        sysvipc_variants = [
+            "droidspaces_sysvipc_kabi_slots678.patch",  # upstream's default choice for every below-6.12 branch - tried first
+            "droidspaces_sysvipc_kabi_slots345.patch",
+            "droidspaces_sysvipc_kabi_slots123.patch",
+        ]
+        applied_variant = None
+        self._chdir(common_dir)
+        for variant in sysvipc_variants:
+            patch_file = patch_dir / variant
+            if not patch_file.exists():
+                continue
+            # -F 0: no fuzz. A fuzzy "clean" apply here could silently
+            # land on the wrong reserve slots rather than genuinely
+            # matching this tree's layout - for a kABI patch that's
+            # worse than just failing outright.
+            dry_run = self._run_cmd(f"patch -p1 -F 0 --dry-run < {patch_file}", check=False)
+            if dry_run.returncode == 0:
+                self._run_cmd(f"patch -p1 -F 0 < {patch_file}", check=False)
+                applied_variant = variant
+                break
+        self._chdir(self.work_dir)
+
+        if not applied_variant:
+            logger.warning(
+                "Droidspaces SYSVIPC kABI patch did not cleanly match any "
+                "of the 3 known ANDROID_KABI_RESERVE slot layouts on this "
+                "branch - task_struct may have diverged further upstream. "
+                "Continuing WITHOUT Droidspaces support (defconfig options "
+                "are not added either, to avoid a bootloop from enabling "
+                "CONFIG_SYSVIPC without the matching kABI fix)."
+            )
+            self._mark("droidspaces", "failed", "no sysvipc kabi variant applied cleanly")
+            return
+        logger.info(f"Droidspaces SYSVIPC kABI patch applied ({applied_variant})")
+
+        # 5.10 needs one more patch for POSIX_MQUEUE specifically (a
+        # different struct - user_struct, not task_struct - so no slot
+        # conflict with the patch above).
+        mqueue_detail = ""
+        if self.config.kernel_version == "5.10":
+            self._chdir(common_dir)
+            mqueue_patch = patch_dir / "droidspaces_posix_mqueue_5_10.patch"
+            result = self._run_cmd(f"patch -p1 -F 0 < {mqueue_patch}", check=False)
+            self._chdir(self.work_dir)
+            if result.returncode != 0:
+                logger.warning(
+                    "Droidspaces POSIX_MQUEUE kABI patch (5.10-specific) "
+                    "did not apply cleanly - POSIX_MQUEUE may still break "
+                    "kABI on this branch. Continuing anyway since the main "
+                    "SYSVIPC patch succeeded; POSIX_MQUEUE just won't be "
+                    "safely enabled."
+                )
+                mqueue_detail = "; posix_mqueue patch failed"
+
+        # Required + recommended defconfig options - see
+        # https://github.com/ravindu644/Droidspaces-OSS/blob/main/Documentation/Kernel-Configuration.md
+        config_file = common_dir / "arch/arm64/configs/gki_defconfig"
+        if not config_file.exists():
+            logger.warning(f"gki_defconfig not found at {config_file} - Droidspaces configs not added")
+            self._mark("droidspaces", "failed", f"sysvipc variant {applied_variant} applied, but gki_defconfig missing")
+            return
+
+        droidspaces_configs = [
+            "# Droidspaces container runtime support",
+            "CONFIG_SYSVIPC=y",
+            "CONFIG_POSIX_MQUEUE=y",
+            "CONFIG_IPC_NS=y",
+            "CONFIG_PID_NS=y",
+            "CONFIG_DEVTMPFS=y",
+            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y",
+            "CONFIG_USER_NS=y",
+            "CONFIG_NETFILTER_XT_TARGET_REJECT=y",
+            "CONFIG_NETFILTER_XT_TARGET_LOG=y",
+            "CONFIG_NETFILTER_XT_MATCH_RECENT=y",
+            "CONFIG_IP_SET=y",
+            "CONFIG_IP_SET_HASH_IP=y",
+            "CONFIG_IP_SET_HASH_NET=y",
+            "CONFIG_NETFILTER_XT_SET=y",
+            "CONFIG_TMPFS_POSIX_ACL=y",
+            "CONFIG_TMPFS_XATTR=y",
+            "CONFIG_BINFMT_MISC=y",
+            "CONFIG_BINFMT_SCRIPT=y",
+            "CONFIG_BINFMT_ELF=y",
+        ]
+        with open(config_file, "a") as f:
+            f.write("\n" + "\n".join(droidspaces_configs) + "\n")
+        self._mark("droidspaces", "applied", f"sysvipc variant: {applied_variant}{mqueue_detail}")
 
     # fs/namespace.c: on SOME specific branches/sub_levels, the SUSFS
     # patch was written against a version of this file that lacks
@@ -1630,6 +1807,16 @@ CONFIG_NTSYNC=y
             self.apply_sukisu_patches()
             self.apply_zram_patches()
             self.apply_task_mmu_fixes()
+            # Applied last, deliberately after SUSFS/SukiSU: Droidspaces'
+            # kABI patch and SUSFS both potentially touch the same
+            # ANDROID_KABI_RESERVE slots in include/linux/sched.h. If
+            # Droidspaces ran first and claimed a slot SUSFS's patch
+            # expects to find untouched, SUSFS - the core, non-optional
+            # functionality of this whole project - could fail to apply.
+            # Running Droidspaces last means if there IS a conflict, it's
+            # this new optional feature that fails/gets skipped, never
+            # SUSFS.
+            self.apply_droidspaces_support()
             self._write_patch_status()
             self.configure_kernel()
             self.configure_kernel_name()
