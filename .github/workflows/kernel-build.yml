@@ -74,7 +74,7 @@ on:
         description: 'Enable ZRAM (LZ4KD)'
         required: true
         type: boolean
-        default: true
+        default: false
       use_kpm:
         description: 'Enable KPM'
         required: true
@@ -106,12 +106,13 @@ on:
         type: boolean
         default: true
       bbr_version:
-        description: 'BBR congestion control version'
+        description: 'BBR congestion control version (bbr3: android12/13/14 only - see README)'
         required: true
         type: choice
         options:
           - none
           - bbr1
+          - bbr3
         default: bbr1
       make_release:
         description: 'Create GitHub Release'
