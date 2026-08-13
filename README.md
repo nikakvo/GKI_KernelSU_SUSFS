@@ -192,8 +192,9 @@ An LTS-merge entry additionally carries `"lts": true` (cosmetic only — see [LT
 | `--zram` | Enable ZRAM (LZ4KD) | False |
 | `--no-kpm` | Disable KPM | False |
 | `--bbg` | Enable Baseband-guard | False |
+| `--droidspaces` | Enable Droidspaces container-runtime support (android12/13/14 only — see [Droidspaces Support](#droidspaces-support)) | False |
 | `--op8e` | Enable OnePlus 8E support | False |
-| `--bbr-version` | Congestion control: `none` or `bbr1` (sets as system default) | bbr1 |
+| `--bbr-version` | Congestion control: `none`, `bbr1`, or `bbr3` (sets as system default) — `bbr3` only on android12/13/14, see [BBRv3 Support](#bbrv3-support) | bbr1 |
 | `--disable-safemode` | Permanently disable KernelSU/SukiSU volume-key safe mode detection (most users rely on [YABP](https://github.com/Magisk-Modules-Repo/YetAnotherBootloopProtector) instead) | False |
 | `--no-release` | Don't create a GitHub Release | False |
 | `--custom-version` | Custom `CONFIG_LOCALVERSION` string | - |
@@ -221,9 +222,11 @@ An LTS-merge entry additionally carries `"lts": true` (cosmetic only — see [LT
 | [KernelSU / SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) | Kernel-level root solution |
 | [SUSFS4](https://gitlab.com/simonpunk/susfs4ksu) | Kernel-level patches that assist KSU in hiding root |
 | BBR v1 | TCP congestion control algorithm |
+| [BBRv3](https://github.com/WildKernels/kernel_patches/tree/main/common/bbrv3) | Newer TCP congestion control (`--bbr-version bbr3`) — android12/13/14 only. See [BBRv3 Support](#bbrv3-support) below. |
 | [LZ4KD](https://github.com/ShirkNeko/SukiSU_patch/tree/main/other) | ZRAM compression algorithm sourced from Huawei's codebase |
 | [KPM](https://github.com/bmax121/KernelPatch) | Kernel module support |
 | [Baseband-guard](https://github.com/vc-teahouse/Baseband-guard) | Baseband security protection |
+| [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS) | Container-runtime support (`--droidspaces`) — real namespace isolation for full Linux distros with a working init system, not just chroot. See [Droidspaces Support](#droidspaces-support) below. |
 | MGLRU / PSI | Modern memory reclaim + pressure metrics for smarter LMKD decisions |
 | IP Set / CAKE | Netfilter IP grouping and bufferbloat-reducing queue discipline |
 | Wireguard | Native in-kernel VPN support |
@@ -235,6 +238,36 @@ An LTS-merge entry additionally carries `"lts": true` (cosmetic only — see [LT
 LZ4K, LZ4HC, deflate, 842, lz4k_oplus
 
 </details>
+
+---
+
+## BBRv3 Support
+
+[BBRv3](https://github.com/WildKernels/kernel_patches/tree/main/common/bbrv3) is Google's newer TCP congestion control algorithm — an evolution of the widely-used BBRv1 already shipped by default. Backport patches are vendored from WildKernels (also the source of the Droidspaces integration above), pre-adjusted for Android kABI compliance. Enable it with `--bbr-version bbr3` (or the `BBR congestion control version` choice in either GitHub Actions workflow, or `BBR_VERSION="bbr3"` in `build-kernel.sh`).
+
+**Currently wired up for `android12-5.10`, `android13-5.15`, and `android14-6.1` only** — the three branches this project builds. (WildKernels also publish an `android15-6.6` variant; not vendored here since nothing currently built targets that branch — trivial to add later.)
+
+Two small prerequisite patches (`proc_dou8vec_minmax()` and a follow-up data-race fix, both from mainline `-stable`) are applied first if missing — on the sub_levels this project currently builds they're almost certainly already present via normal upstream updates, so this is expected to be a silent no-op in practice.
+
+If the main BBRv3 patch doesn't apply cleanly (a branch's `net/ipv4` source has diverged too far from what the backport expects), the build **falls back to BBRv1** as the system default rather than silently leaving the kernel on cubic with no explanation — check the [patch status summary](#build-matrix) (a `FAIL` on `BBRv3` means this happened).
+
+Verify after flashing:
+```bash
+su -c "sysctl net.ipv4.tcp_congestion_control"      # should print "bbr3"
+su -c "sysctl net.ipv4.tcp_available_congestion_control"   # should list bbr3 among the options
+```
+
+---
+
+## Droidspaces Support
+
+[Droidspaces](https://github.com/ravindu644/Droidspaces-OSS) is a lightweight, LXC-like container runtime for Android — real Linux namespace isolation (PID, IPC, Mount) so a full Linux distro can run with its own genuine init system (systemd, OpenRC), instead of a plain chroot that just shares the host's process tree. Enable it with `--droidspaces` (or the `Enable Droidspaces` toggle in either GitHub Actions workflow, or `DROIDSPACES="1"` in `build-kernel.sh`).
+
+**Currently wired up for `android12-5.10`, `android13-5.15`, and `android14-6.1` only** — the three branches this project builds. Google's GKI enforces a strict kABI (Kernel Module Interface) checksum on struct layouts, so naively enabling `CONFIG_SYSVIPC`/`CONFIG_IPC_NS`/`CONFIG_POSIX_MQUEUE` without a matching patch causes an **immediate bootloop**. This flag applies the upstream kABI-safe patch (moving the relevant fields into Android's reserved padding slots) before turning those options on — three slot-layout variants are vendored and tried in order (strict, no-fuzz matching) since which `ANDROID_KABI_RESERVE` slots are still free isn't identical across every branch/respin; whichever one actually fits this exact source tree is used. If none of the three fit, the build continues without Droidspaces rather than risking a silent kABI break (check the [patch status summary](#build-matrix) — a `FAIL` on `Droidspaces` means this happened).
+
+Applied *after* SUSFS/SukiSU-Ultra in the build sequence deliberately — if there's ever a real conflict over the same kABI reserve slots, it's this optional feature that loses, never the project's core functionality.
+
+Once built, verify and use it via the [Droidspaces Android app](https://github.com/ravindu644/Droidspaces-OSS) (Settings → Requirements → Check Requirements).
 
 ---
 
