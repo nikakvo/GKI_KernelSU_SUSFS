@@ -27,6 +27,7 @@ DISPLAY_NAMES = {
     "safemode_disable": "Safe Mode Disabled",
     "baseband_guard": "Baseband-guard",
     "droidspaces": "Droidspaces",
+    "bbrv3": "BBRv3",
 }
 PREFERRED_ORDER = list(DISPLAY_NAMES.keys())
 
