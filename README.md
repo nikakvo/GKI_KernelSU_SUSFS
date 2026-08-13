@@ -17,6 +17,8 @@ This project builds on the work of others in the GKI/KernelSU ecosystem:
 - **[ShirkNeko/GKI_KernelSU_SUSFS](https://github.com/ShirkNeko/GKI_KernelSU_SUSFS)** — the original build system this project was originally forked from. The overall build.py/kernel_builder.py architecture traces back to this project.
 - **[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra)** — the KernelSU implementation this build system compiles into every kernel.
 - **[susfs4ksu](https://github.com/sidex15/susfs4ksu-module)** and **[ShirkNeko/SukiSU_patch](https://github.com/ShirkNeko/SukiSU_patch)** — SUSFS kernel patches and supplementary SukiSU-Ultra patches (ZRAM, hooks).
+- **[WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)** — the BBRv3 backport patches (`common/bbrv3`) vendored for the [BBRv3 Support](#bbrv3-support) feature.
+- **[ravindu644/Droidspaces-OSS](https://github.com/ravindu644/Droidspaces-OSS)** — the container-runtime app and kABI-compliant kernel patches vendored for the [Droidspaces Support](#droidspaces-support) feature. The [WildKernels/GKI_KernelSU_SUSFS](https://github.com/WildKernels/GKI_KernelSU_SUSFS) actions were the reference for how to wire Droidspaces into a GKI build pipeline.
 
 This repository has since diverged significantly from the original fork (exact GKI respin pinning including LTS-merge tags/commits, automatic matrix updates, local-build tooling, AVB signing, safe-mode removal, and more — see below), and is now maintained as an independent project.
 
