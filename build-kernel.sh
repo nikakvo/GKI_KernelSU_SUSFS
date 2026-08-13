@@ -54,7 +54,8 @@ IS_LTS=""
 # Set to "1" to enable Droidspaces container-runtime support (real
 # Linux namespace isolation - see README's "Droidspaces" section).
 # Only wired up for android12-5.10/android13-5.15/android14-6.1 so far.
-DROIDSPACES=""
+# Defaults to enabled - set to "" to build without it.
+DROIDSPACES="1"
 
 # ============================================================
 #  Dependency check / auto-install
