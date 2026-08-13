@@ -86,10 +86,10 @@ on:
         type: boolean
         default: false
       DROIDSPACES:
-        description: 'Enable Droidspaces container-runtime support (namespaces for full Linux distros - see README) - android12/13/14 (5.10/5.15/6.1) only'
+        description: 'Enable Droidspaces container-runtime support (namespaces for full Linux distros - see README) - android12/13/14 (5.10/5.15/6.1) only. Uncheck to build without it.'
         required: true
         type: boolean
-        default: false
+        default: true
       supp_op:
         description: 'Enable OnePlus 8E support'
         required: true
