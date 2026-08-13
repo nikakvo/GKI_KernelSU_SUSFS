@@ -159,6 +159,7 @@ CONFIG_NTSYNC=y
         # not apply cleanly - build may still continue depending on the
         # step).
         self.patch_status: dict = {}
+        self._bbrv3_applied = False
         self._setup_env()
 
     def _mark(self, name: str, status: str, detail: str = ""):
@@ -899,6 +900,127 @@ CONFIG_NTSYNC=y
             f.write("\n" + "\n".join(droidspaces_configs) + "\n")
         self._mark("droidspaces", "applied", f"sysvipc variant: {applied_variant}{mqueue_detail}")
 
+    def apply_bbrv3_patches(self):
+        """Backports BBRv3 (github.com/WildKernels/kernel_patches, common/bbrv3)
+        - Google's newer TCP congestion control algorithm - to GKI
+        branches that don't ship it upstream, with the necessary
+        Android kABI compliance adjustments already folded in by the
+        WildKernels backport itself (no reserve-slot juggling needed
+        here, unlike Droidspaces - BBRv3 doesn't touch struct layouts
+        that are kABI-tracked).
+
+        Only wired up for android12-5.10, android13-5.15, android14-6.1
+        so far (the branches this project builds) - WildKernels also
+        publish an android15-6.6 variant, not vendored here yet since
+        nothing currently built uses that branch.
+
+        Two small prerequisite patches (proc_dou8vec_minmax() and its
+        follow-up data-race fix) are tried first with -N (skip
+        cleanly if already applied) - recent kernel sub_levels almost
+        certainly already have this backported via normal upstream
+        -stable updates, so these are expected to no-op in practice
+        and are only here for older/divergent source trees.
+
+        The main patch is tried at fuzz=0 first, then fuzz=3 as a
+        fallback (dry-run for both, only ever actually applying the
+        first one that comes back clean - never apply-then-retry, see
+        the comment inline). Fuzz is safe here (unlike Droidspaces'
+        kABI patch, which deliberately never uses fuzz): this only
+        touches ordinary net/ipv4/*.c function bodies, not kABI-tracked
+        struct layouts, so a fuzzy match still applies the exact same
+        code change - it's just more tolerant of a few lines of
+        surrounding context having drifted on this particular branch.
+
+        Sets self._bbrv3_applied so configure_kernel() knows whether to
+        write CONFIG_DEFAULT_BBR3=y - never blindly set that from
+        self.config.bbr_version alone, since the Kconfig symbol
+        wouldn't exist if this patch didn't actually land.
+        """
+        self._bbrv3_applied = False
+        if self.config.bbr_version != "bbr3":
+            self._mark("bbrv3", "skipped", "not requested")
+            return
+        fb = f"{self.config.android_version}-{self.config.kernel_version}"
+        if fb not in ("android12-5.10", "android13-5.15", "android14-6.1"):
+            logger.warning(f"BBRv3 requested but not implemented yet for {fb} - skipping")
+            self._mark("bbrv3", "skipped", f"{fb} not supported yet")
+            return
+
+        logger.info("=== Applying BBRv3 TCP congestion control backport ===")
+        common_dir = self.work_dir / "common"
+        if not common_dir.exists():
+            self._mark("bbrv3", "failed", "common/ missing")
+            return
+
+        patch_dir = Path(__file__).parent / "patches"
+        self._chdir(common_dir)
+
+        # Prerequisites - expected to silently no-op on recent trees.
+        for prereq in ["bbrv3_prereq_sysctl_dou8vec_minmax.patch",
+                       "bbrv3_prereq_sysctl_dou8vec_minmax_races.patch"]:
+            p = patch_dir / prereq
+            if p.exists():
+                self._run_cmd(f"patch -p1 -N -F 0 --batch < {p}", check=False)
+
+        main_patch = patch_dir / f"bbrv3_{fb}.patch"
+        if not main_patch.exists():
+            self._chdir(self.work_dir)
+            self._mark("bbrv3", "failed", "main patch file missing")
+            return
+
+        # Dry-run first at strict (no fuzz), then - only if that fails -
+        # at a small amount of fuzz, and only actually apply whichever
+        # level first comes back clean. Never apply-then-retry, since
+        # reverting a partially-applied patch mid-build would risk
+        # undoing the other, already-applied patches sitting in the
+        # same uncommitted working tree (ptrace/ntsync/SUSFS/SukiSU/
+        # Droidspaces etc. all landed earlier in this same build with
+        # no git commit in between).
+        #
+        # Fuzz is safe to allow here (unlike Droidspaces' kABI patch,
+        # which deliberately stays strict): this patch only touches
+        # ordinary net/ipv4/*.c function bodies and call sites, not
+        # kABI-tracked struct layouts - fuzz only relaxes how much
+        # surrounding context is allowed to differ, never what the
+        # actual change itself is, so a fuzzy match here still applies
+        # the exact same code change, just more tolerant of this
+        # branch's source having drifted a line or two around it.
+        applied_fuzz = None
+        for fuzz in (0, 3):
+            dry_run = self._run_cmd(f"patch -p1 -F {fuzz} --dry-run < {main_patch}", check=False)
+            if dry_run.returncode == 0:
+                applied_fuzz = fuzz
+                break
+        if applied_fuzz is None:
+            self._chdir(self.work_dir)
+            logger.warning(
+                "BBRv3 patch did not apply cleanly even with fuzz - this "
+                "branch's net/ipv4 source may have diverged significantly "
+                "from what the WildKernels backport expects. Continuing "
+                "WITHOUT BBRv3 (falling back to whatever --bbr-version "
+                "would otherwise select)."
+            )
+            self._mark("bbrv3", "failed", "main patch did not apply cleanly (tried fuzz 0 and 3)")
+            return
+
+        result = self._run_cmd(f"patch -p1 -F {applied_fuzz} < {main_patch}", check=False)
+        self._chdir(self.work_dir)
+        if result.returncode != 0:
+            # Dry-run and real apply disagreeing is unusual but not
+            # impossible (e.g. a hunk whose match depends on state left
+            # by a PRECEDING hunk in the same file) - treat it the same
+            # as any other failure: fail safe, don't half-apply.
+            logger.warning(
+                "BBRv3 patch passed --dry-run but failed on the real "
+                "apply - continuing WITHOUT BBRv3 (falling back to "
+                "whatever --bbr-version would otherwise select)."
+            )
+            self._mark("bbrv3", "failed", "dry-run succeeded but real apply failed")
+            return
+
+        self._bbrv3_applied = True
+        self._mark("bbrv3", "applied", "" if applied_fuzz == 0 else f"applied with fuzz={applied_fuzz}")
+
     # fs/namespace.c: on SOME specific branches/sub_levels, the SUSFS
     # patch was written against a version of this file that lacks
     # "#include <trace/hooks/blk.h>" (Google added it later), so the
@@ -1261,6 +1383,28 @@ CONFIG_NTSYNC=y
         if self.config.bbr_version == "bbr1":
             with open(config_file, "a") as f:
                 f.write("CONFIG_DEFAULT_BBR=y\n")
+        elif self.config.bbr_version == "bbr3":
+            if self._bbrv3_applied:
+                with open(config_file, "a") as f:
+                    f.write("CONFIG_TCP_CONG_BBR3=y\n")
+                    f.write("CONFIG_DEFAULT_BBR3=y\n")
+            else:
+                # apply_bbrv3_patches() already logged/marked why this
+                # didn't land - CONFIG_TCP_CONG_BBR3 simply doesn't
+                # exist in Kconfig without the patch, so setting
+                # CONFIG_DEFAULT_BBR3=y here would just be silently
+                # ignored by the build and leave the kernel on cubic
+                # with no obvious explanation. Fall back to bbr1
+                # instead, which is always available, so the person
+                # gets a working (if not the requested) congestion
+                # control rather than a silent, unexplained cubic.
+                logger.warning(
+                    "BBRv3 was requested but did not apply - falling "
+                    "back to BBRv1 as the system default congestion "
+                    "control instead of silently leaving it on cubic."
+                )
+                with open(config_file, "a") as f:
+                    f.write("CONFIG_DEFAULT_BBR=y\n")
 
         build_config = self.work_dir / "common/build.config.gki"
         if build_config.exists():
@@ -1817,6 +1961,10 @@ CONFIG_NTSYNC=y
             # this new optional feature that fails/gets skipped, never
             # SUSFS.
             self.apply_droidspaces_support()
+            # BBRv3 touches net/ipv4/* only - no overlap with SUSFS/
+            # Droidspaces' files, but applied here too for consistency
+            # (all optional features settled before writing defconfig).
+            self.apply_bbrv3_patches()
             self._write_patch_status()
             self.configure_kernel()
             self.configure_kernel_name()
