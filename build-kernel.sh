@@ -56,6 +56,9 @@ IS_LTS=""
 # Only wired up for android12-5.10/android13-5.15/android14-6.1 so far.
 # Defaults to enabled - set to "" to build without it.
 DROIDSPACES="1"
+# Congestion control: "none", "bbr1", or "bbr3" (android12/13/14 only
+# so far - see README's "BBRv3" note).
+BBR_VERSION="bbr3"
 
 # ============================================================
 #  Dependency check / auto-install
@@ -184,7 +187,7 @@ for key, entries in data.items():
             --kernel "$k" \
             --sub-level "$s" \
             --os-patch "$p" \
-            --bbr-version bbr1 \
+            --bbr-version "$BBR_VERSION" \
             --zram \
             --disable-safemode \
             --workspace "$WORKSPACE" \
@@ -253,7 +256,7 @@ python3 build.py \
     --kernel "$KERNEL_VERSION" \
     --sub-level "$SUB_LEVEL" \
     --os-patch "$OS_PATCH" \
-    --bbr-version bbr1 \
+    --bbr-version "$BBR_VERSION" \
     --zram \
     --disable-safemode \
     --workspace "$WORKSPACE" \
