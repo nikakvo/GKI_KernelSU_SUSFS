@@ -74,7 +74,7 @@ on:
         description: 'Enable ZRAM (LZ4KD)'
         required: true
         type: boolean
-        default: false
+        default: true
       use_kpm:
         description: 'Enable KPM'
         required: true
