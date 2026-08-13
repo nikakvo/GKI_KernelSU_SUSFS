@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent))
-from config import KERNEL_VERSION
 
 
 class ReleaseGenerator:
@@ -44,7 +43,8 @@ class ReleaseGenerator:
 - KPM Support (Kernel Patch Module)
 - Manual Syscall Hooks
 - Magic Mount Support
-- BBR v1 Support
+- BBR v1 Support (default)
+- BBR v3 Support (android12/13/14 — opt-in)
 - ZRAM Support
 - LZ4KD Compression Support
 - MGLRU Support (Multi-Gen LRU, enabled by default)
@@ -53,6 +53,7 @@ class ReleaseGenerator:
 - CAKE Queue Discipline Support
 - Wireguard Support
 - NTSync Support (Winlator/Wine NT synchronization primitives)
+- Droidspaces Support (android12/13/14 — real container namespaces)
 - Ptrace Leak Fix (kernels < 5.16)
 - Safe Mode Permanently Disabled
 - Thin LTO
@@ -71,11 +72,17 @@ class ReleaseGenerator:
 
 - **Magic Mount Support** — Overlay-based mounting system that lets root modules modify the filesystem without altering the underlying partitions directly, improving compatibility and reducing detection surface.
 
-- **BBR v1 Support** — TCP congestion control algorithm developed by Google, providing better throughput and lower latency than traditional algorithms (e.g. CUBIC) on modern networks, especially with packet loss or variable bandwidth.
+- **BBR v1 Support (default)** — TCP congestion control algorithm developed by Google, providing better throughput and lower latency than traditional algorithms (e.g. CUBIC) on modern networks, especially with packet loss or variable bandwidth.
   ```
   su -c cat /proc/sys/net/ipv4/tcp_congestion_control
   ```
   Active if output is `bbr`.
+
+- **BBRv3 Support (android12/13/14 only, opt-in)** — Google's newer, improved successor to BBR v1 — better fairness with other flows and less bufferbloat under load. Backported via [WildKernels' kABI-compliant patch](https://github.com/WildKernels/kernel_patches/tree/main/common/bbrv3), selected in place of BBR v1 (not on top of it) via the build's `--bbr-version bbr3` option. Only wired up for `android12-5.10`/`android13-5.15`/`android14-6.1` so far, and depends on the patch applying cleanly on that specific branch/sub_level — check this release's build summary if unsure whether a given file has it; the build falls back to BBR v1 automatically if it doesn't apply.
+  ```
+  su -c cat /proc/sys/net/ipv4/tcp_congestion_control
+  ```
+  Active if output is `bbr3` (not `bbr`).
 
 - **LZ4KD Support** — Enhanced LZ4 compression algorithm for ZRAM, offering better compression ratios with minimal CPU overhead — improves effective RAM capacity by compressing swapped-out memory pages.
   ```
@@ -119,6 +126,16 @@ class ReleaseGenerator:
   su -c "zcat /proc/config.gz | grep CONFIG_NTSYNC"
   ```
   Active if `/dev/ntsync` exists (as a character device) and `CONFIG_NTSYNC=y` is shown.
+
+- **Droidspaces Support (android12/13/14 only)** — Enables real Linux namespace isolation (PID, IPC, Mount, User) at the kernel level, the foundation for running a full Linux distro in a genuine isolated container — with its own real init system (systemd, OpenRC) — instead of a plain chroot that just shares the host's process tree. Use it via the [Droidspaces app](https://github.com/ravindu644/Droidspaces-OSS), which handles the actual container setup/management; this kernel just provides the underlying namespace support it needs. Only wired up for `android12-5.10`/`android13-5.15`/`android14-6.1` so far, and depends on a kABI-safe patch applying cleanly on that specific branch/sub_level — check this release's build summary if unsure whether a given file has it.
+  ```
+  su -c "zcat /proc/config.gz | grep -E 'CONFIG_SYSVIPC|CONFIG_POSIX_MQUEUE|CONFIG_IPC_NS|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_DEVTMPFS'"
+  ```
+  Active if all of them show `=y`. For a deeper functional check:
+  ```
+  su -c "unshare -pf echo namespace-test-ok"
+  ```
+  Active if it prints `namespace-test-ok` without an error.
 
 - **Ptrace Leak Fix (kernels < 5.16)** — Backports an upstream Linux 5.16 hardening fix that closes a race where `ptrace_message` (e.g. a forked child's PID during a ptrace event) was briefly visible to other readers before the tracer was actually notified, or left stale after detach. Relevant on kernel 5.10/5.15 branches, where this isn't present natively; on 6.1+ branches it's already upstream, so nothing is patched there. There's no `/proc` or `/sys` flag to check this directly — it's a kernel-internal timing/security fix, not a toggle.
 
