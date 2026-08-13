@@ -60,11 +60,15 @@ on:
         required: true
         type: boolean
         default: true
-      set_defbbr:
-        description: 'Set BBR as default congestion algorithm'
+      bbr_version:
+        description: 'BBR congestion control version'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - none
+          - bbr1
+          - bbr3
+        default: bbr1
       use_cache:
         description: 'Use ccache (saves/restores build cache via a "Build Cache" GitHub Release - disable for a fully private run with nothing published, e.g. when make_release is also off)'
         required: true
@@ -200,11 +204,7 @@ jobs:
           [ "${{ github.event.inputs.enable_ksm }}" = "true" ] && ARGS="$ARGS --ksm"
           [ "${{ github.event.inputs.disable_safemode }}" = "true" ] && ARGS="$ARGS --disable-safemode"
 
-          if [ "${{ github.event.inputs.set_defbbr }}" = "true" ]; then
-            ARGS="$ARGS --bbr-version bbr1"
-          else
-            ARGS="$ARGS --bbr-version none"
-          fi
+          ARGS="$ARGS --bbr-version ${{ github.event.inputs.bbr_version }}"
 
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
