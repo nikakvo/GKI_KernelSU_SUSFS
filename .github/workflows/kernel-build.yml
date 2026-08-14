@@ -102,7 +102,7 @@ on:
         default: false
       disable_safemode:
         description: 'Permanently disable KernelSU/SukiSU volume-key safe-mode detection'
-        required: true
+        required: false
         type: boolean
         default: false
       bbr_version:
