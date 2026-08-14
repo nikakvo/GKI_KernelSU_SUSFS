@@ -104,7 +104,7 @@ on:
         description: 'Permanently disable KernelSU/SukiSU volume-key safe-mode detection'
         required: true
         type: boolean
-        default: true
+        default: false
       bbr_version:
         description: 'BBR congestion control version (bbr3: android12/13/14 only - see README)'
         required: true
