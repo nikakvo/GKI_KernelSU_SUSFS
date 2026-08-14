@@ -55,7 +55,6 @@ class ReleaseGenerator:
 - NTSync Support (Winlator/Wine NT synchronization primitives)
 - Droidspaces Support (android12/13/14 — real container namespaces)
 - Ptrace Leak Fix (kernels < 5.16)
-- Safe Mode Permanently Disabled
 - Thin LTO
 
 ## Detailed explanation
@@ -138,8 +137,6 @@ class ReleaseGenerator:
   Active if it prints `namespace-test-ok` without an error.
 
 - **Ptrace Leak Fix (kernels < 5.16)** — Backports an upstream Linux 5.16 hardening fix that closes a race where `ptrace_message` (e.g. a forked child's PID during a ptrace event) was briefly visible to other readers before the tracer was actually notified, or left stale after detach. Relevant on kernel 5.10/5.15 branches, where this isn't present natively; on 6.1+ branches it's already upstream, so nothing is patched there. There's no `/proc` or `/sys` flag to check this directly — it's a kernel-internal timing/security fix, not a toggle.
-
-- **Safe Mode Permanently Disabled** — KernelSU/SukiSU's volume-key safe-mode detection (holding Vol Up/Down during boot to temporarily disable root) is permanently patched out at the kernel level. Most users already rely on [Yet Another Bootloop Protector](https://github.com/Magisk-Modules-Alt-Repo/YetAnotherBootloopProtector/releases) for this purpose, and the volume-key combo can trigger by accident during normal use. There's no `/proc` or `/sys` flag to check this directly — verify behaviorally: holding the volume keys during boot should no longer trigger safe mode. If you need emergency root disable, use YABP instead.
 
 - **Thin LTO** — LLVM Thin Link-Time Optimization (LTO) performs optimization across translation units while keeping the build process more parallel and memory-efficient than full LTO. It can improve kernel performance and code generation with lower build-time and memory overhead than full LTO.
   ```
