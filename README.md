@@ -160,6 +160,12 @@ This queries Google's `kernel/common` repository directly (`git ls-remote --tags
 
 New entries are added as `"enabled": false` (opt-in); existing entries get their `kernel_tag`/`sub_level` refreshed without touching your `enabled` choices. A commit-SHA-pinned entry (see [LTS Builds](#lts-builds)) is left untouched until Google actually cuts the matching official tag, at which point it's automatically upgraded from the SHA to the real tag.
 
+You can sanity-check what's currently enabled at any time with:
+```bash
+python3 check_matrix.py
+```
+Prints every `"enabled": true` entry and whether it has a `kernel_tag` pinned (an entry without one will build from the moving branch HEAD - see [Exact Source Pinning](#exact-source-pinning-kernel-tag) above).
+
 Tracked families: `android12-5.10`, `android13-5.15`, `android14-6.1`, `android15-6.6`, `android16-6.12`, `android17-6.18`.
 
 > **Note on android16/17:** SukiSU-Ultra does not yet fully support kernel 6.12+ — see [SukiSU-Ultra#921](https://github.com/SukiSU-Ultra/SukiSU-Ultra/issues/921) (`netlink_kernel_cfg`/`security_add_hooks` API breakage). These entries are tracked for when upstream support lands, but currently fail to compile. Leave them `"enabled": false` until that issue is resolved.
@@ -319,24 +325,48 @@ Copy the resulting version string and paste it into the build panel to spoof the
 ## Build System Architecture
 
 ```
-.github/workflows/
-├── config/
-│   ├── matrix.json           # Build matrix - kept current by update_matrix.py
-│   └── update_matrix.py      # Refreshes matrix.json from Google's kernel/common tags
-├── scripts/
-│   ├── build.py               # Main build script (CLI entry point)
-│   ├── kernel_builder.py      # Core kernel build class
-│   ├── config.py              # Configuration definitions and validation
-│   ├── matrix_generator.py    # GitHub Actions matrix generator
-│   ├── patch_summary.py       # Aggregates per-build patch status into one CI summary table
-│   ├── release_generator.py   # Release notes generator
-│   ├── extract_artifacts.py   # Collects build artifacts for release
-│   ├── telegram_notify.py     # Optional Telegram build notifications
-│   └── patches/
-│       └── disable-safemode-full.patch
-├── update-matrix.yml          # Scheduled workflow that runs update_matrix.py
-├── kernel-build.yml           # Single-version build workflow
-└── build-kernels.yml          # Full matrix build workflow
+.github/
+├── actions/
+│   ├── cache-restore/
+│   │   └── action.yml         # Restores build cache from a GitHub Releases asset
+│   └── cache-save/
+│       └── action.yml         # Saves build cache to a GitHub Releases asset
+└── workflows/
+    ├── config/
+    │   ├── matrix.json           # Build matrix - kept current by update_matrix.py
+    │   └── update_matrix.py      # Refreshes matrix.json from Google's kernel/common tags
+    ├── scripts/
+    │   ├── build.py               # Main build script (CLI entry point)
+    │   ├── kernel_builder.py      # Core kernel build class
+    │   ├── config.py              # Configuration definitions and validation
+    │   ├── check_matrix.py        # Sanity-check CLI: lists enabled matrix.json entries and flags any missing a kernel_tag
+    │   ├── matrix_generator.py    # GitHub Actions matrix generator
+    │   ├── patch_summary.py       # Aggregates per-build patch status into one CI summary table
+    │   ├── release_generator.py   # Release notes generator
+    │   ├── extract_artifacts.py   # Collects build artifacts for release
+    │   ├── telegram_notify.py     # Optional Telegram build notifications
+    │   └── patches/
+    │       ├── bbrv3_android12-5.10.patch
+    │       ├── bbrv3_android13-5.15.patch
+    │       ├── bbrv3_android14-6.1.patch
+    │       ├── bbrv3_prereq_sysctl_dou8vec_minmax.patch
+    │       ├── bbrv3_prereq_sysctl_dou8vec_minmax_races.patch
+    │       ├── disable-safemode-full.patch
+    │       ├── droidspaces_posix_mqueue_5_10.patch
+    │       ├── droidspaces_sysvipc_kabi_slots123.patch
+    │       ├── droidspaces_sysvipc_kabi_slots345.patch
+    │       ├── droidspaces_sysvipc_kabi_slots678.patch
+    │       ├── gki_ptrace.patch
+    │       ├── ntsync_base.patch
+    │       ├── ntsync_compat_android12-5.10.patch
+    │       ├── ntsync_compat_android12-5.10_A14.patch
+    │       ├── ntsync_compat_android13-5.15.patch
+    │       ├── ntsync_compat_android14-6.1.patch
+    │       ├── ntsync_compat_android15-6.6.patch
+    │       └── ntsync_compat_android16-6.12.patch
+    ├── update-matrix.yml          # Scheduled workflow that runs update_matrix.py
+    ├── kernel-build.yml           # Single-version build workflow
+    └── build-kernels.yml          # Full matrix build workflow
 
 build-kernel.sh                # Local interactive build menu (recommended entry point)
 cleanup-workspace.sh           # Reclaims disk space between builds
@@ -349,6 +379,7 @@ cleanup-workspace.sh           # Reclaims disk space between builds
 | `KernelBuilder` | Core kernel build class — handles cloning source, applying patches, compiling, and packaging |
 | `BuildConfig` | Build configuration data class containing all build parameters |
 | `update_matrix.py` | Queries Google's kernel/common tags directly and keeps matrix.json current |
+| `check_matrix.py` | Local sanity-check CLI — prints every enabled matrix.json entry and warns if any is missing a pinned `kernel_tag` |
 | `matrix_generator.py` | Generates the build matrix for the GitHub Actions matrix build |
 | `patch_summary.py` | Aggregates per-build patch application status into one summary table in the CI job summary |
 | `release_generator.py` | Automatically generates Release notes |
