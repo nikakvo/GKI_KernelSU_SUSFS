@@ -118,19 +118,9 @@ CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
 CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
 CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
-# === MGLRU (Multi-Gen LRU) Config ===
-CONFIG_LRU_GEN=y
-CONFIG_LRU_GEN_ENABLED=y
-
-# === PSI (Pressure Stall Information) Config ===
-CONFIG_PSI=y
-
 # === Wireguard Config (forced on regardless of the branch's own
 # gki_defconfig default, since not every branch ships it enabled) ===
 CONFIG_WIREGUARD=y
-
-# === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===
-CONFIG_NTSYNC=y
 
 # === Additional TCP congestion control algorithms (selectable at
 # runtime via `sysctl net.ipv4.tcp_congestion_control`; does NOT change
@@ -1455,6 +1445,22 @@ CONFIG_CIFS=y
                 f.write("# === KSM (Kernel Samepage Merging) Config ===\n")
                 f.write("CONFIG_KSM=y\n")
 
+        if self.config.use_mglru:
+            with open(config_file, "a") as f:
+                f.write("# === MGLRU (Multi-Gen LRU) Config ===\n")
+                f.write("CONFIG_LRU_GEN=y\n")
+                f.write("CONFIG_LRU_GEN_ENABLED=y\n")
+
+        if self.config.use_psi:
+            with open(config_file, "a") as f:
+                f.write("# === PSI (Pressure Stall Information) Config ===\n")
+                f.write("CONFIG_PSI=y\n")
+
+        if self.config.use_ntsync:
+            with open(config_file, "a") as f:
+                f.write("# === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===\n")
+                f.write("CONFIG_NTSYNC=y\n")
+
         if self.config.bbr_version == "bbr1":
             with open(config_file, "a") as f:
                 f.write("CONFIG_DEFAULT_BBR=y\n")
@@ -2014,7 +2020,10 @@ CONFIG_CIFS=y
             self._detect_kernel_respin()
             self._write_scmversion()
             self.apply_ptrace_leak_fix()
-            self.apply_ntsync_patches()
+            if self.config.use_ntsync:
+                self.apply_ntsync_patches()
+            else:
+                self._mark("ntsync", "skipped", "not requested")
             self.add_kernel_supatch()
             self.add_kernelsu()
             if self.config.disable_safemode:
