@@ -43,6 +43,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zram", action="store_true")
     parser.add_argument("--no-kpm", action="store_true")
     parser.add_argument("--bbg", action="store_true")
+    parser.add_argument("--blacklist-modules", default="",
+                        help="Comma-separated list of vendor module names to block from loading "
+                             "(CONFIG_DEBLOAT_VENDOR_MODULES). Auto-disables itself during "
+                             "recovery/fastbootd boot so it never interferes with OTA/flashing. "
+                             "Example: --blacklist-modules millet_binder,millet_hs,millet_oem_cgroup,millet_pkg,mi_cnss_statistic")
     parser.add_argument("--droidspaces", action="store_true",
                         help="Enable Droidspaces (github.com/ravindu644/Droidspaces-OSS) container-runtime "
                              "support - real Linux namespace isolation (PID/IPC/Mount) instead of a plain "
@@ -88,6 +93,7 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         use_zram=args.zram,
         use_kpm=not args.no_kpm,
         use_bbg=args.bbg,
+        blacklist_modules=args.blacklist_modules,
         use_droidspaces=args.droidspaces,
         support_op8e=args.op8e,
         enable_ksm=args.ksm,
