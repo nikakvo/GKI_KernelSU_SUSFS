@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--susfs-commit", default=None)
     parser.add_argument("--zram", action="store_true")
     parser.add_argument("--no-kpm", action="store_true")
+    parser.add_argument("--no-mglru", action="store_true",
+                        help="Disable MGLRU (Multi-Gen LRU memory reclaim). On by default.")
+    parser.add_argument("--no-psi", action="store_true",
+                        help="Disable PSI (Pressure Stall Information). On by default.")
+    parser.add_argument("--no-ntsync", action="store_true",
+                        help="Disable NTSync (Winlator/Wine NT sync primitives). On by default.")
     parser.add_argument("--bbg", action="store_true")
     parser.add_argument("--blacklist-modules", default="",
                         help="Comma-separated list of vendor module names to block from loading "
@@ -92,6 +98,9 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         susfs_commit=args.susfs_commit,
         use_zram=args.zram,
         use_kpm=not args.no_kpm,
+        use_mglru=not args.no_mglru,
+        use_psi=not args.no_psi,
+        use_ntsync=not args.no_ntsync,
         use_bbg=args.bbg,
         blacklist_modules=args.blacklist_modules,
         use_droidspaces=args.droidspaces,
