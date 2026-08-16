@@ -114,6 +114,7 @@ class BuildConfig:
     use_zram: bool = False
     use_kpm: bool = True
     use_bbg: bool = False
+    blacklist_modules: str = ""
     use_droidspaces: bool = False
     support_op8e: bool = False
     enable_ksm: bool = False
@@ -195,6 +196,7 @@ class BuildConfig:
             "use_zram": self.use_zram,
             "use_kpm": self.use_kpm,
             "use_bbg": self.use_bbg,
+            "blacklist_modules": self.blacklist_modules,
             "use_droidspaces": self.use_droidspaces,
             "support_op8e": self.support_op8e,
             "enable_ksm": self.enable_ksm,
