@@ -24,13 +24,20 @@ DISPLAY_NAMES = {
     "sukisu_hide_stuff": "SukiSU Hide Stuff",
     "zram_lz4kd": "ZRAM (LZ4KD)",
     "task_mmu_fixes": "task_mmu.c Fixes",
-    "safemode_disable": "Safe Mode Disabled",
     "baseband_guard": "Baseband-guard",
     "vendor_module_blacklist": "Vendor Module Blacklist",
     "droidspaces": "Droidspaces",
     "bbrv3": "BBRv3",
 }
 PREFERRED_ORDER = list(DISPLAY_NAMES.keys())
+
+# Patch keys that are always written to PATCH_STATUS.json (so the raw
+# per-build JSON stays complete) but deliberately left out of the
+# aggregated CI summary table. safemode_disable: SukiSU-Ultra fixed the
+# underlying volume-key safe-mode bug upstream, so --disable-safemode is
+# off by default now and mostly just clutters the table with "-" - the
+# option itself still works fine if someone needs it again later.
+EXCLUDED_FROM_SUMMARY = {"safemode_disable"}
 
 
 def load_reports(results_dir: Path) -> list:
@@ -77,6 +84,7 @@ def build_table(reports: list, lts_map: dict = None) -> str:
     all_keys = set()
     for r in reports:
         all_keys.update(r.get("patches", {}).keys())
+    all_keys -= EXCLUDED_FROM_SUMMARY
     ordered_keys = [k for k in PREFERRED_ORDER if k in all_keys]
     ordered_keys += sorted(k for k in all_keys if k not in PREFERRED_ORDER)
 
