@@ -54,6 +54,8 @@ class ReleaseGenerator:
 - Wireguard Support
 - NTSync Support (Winlator/Wine NT synchronization primitives)
 - Droidspaces Support (android12/13/14 — real container namespaces)
+- BBG Baseband-guard Support (opt-in)
+- Vendor Module Blacklist Support (opt-in, disabled by default)
 - Ptrace Leak Fix (kernels < 5.16)
 - Thin LTO
 
@@ -135,6 +137,19 @@ class ReleaseGenerator:
   su -c "unshare -pf echo namespace-test-ok"
   ```
   Active if it prints `namespace-test-ok` without an error.
+
+- **BBG Baseband-guard Support (opt-in)** — Lightweight LSM ([vc-teahouse/Baseband-guard](https://github.com/vc-teahouse/Baseband-guard)) that hooks the kernel write path to block unauthorized writes to the baseband/modem and other high-value protected partitions/device nodes, denying by default and logging every blocked attempt for traceability. Off unless the build was run with `--bbg`; check this release's build summary for whether a given file has it. Recovery/bootloader-partition protection (`CONFIG_BBG_BLOCK_BOOT`/`CONFIG_BBG_BLOCK_RECOVERY`) is deliberately left disabled regardless, since enabling it has caused real-world conflicts with kernel-zip flashing and recovery tools on other BBG-enabled kernels — only the core baseband protection is on.
+  ```
+  su -c "zcat /proc/config.gz | grep CONFIG_BBG"
+  su -c "dmesg | grep -c baseband_guard"
+  ```
+  Active if `CONFIG_BBG=y` is shown and the dmesg count is non-zero (BBG logs a line every time it evaluates a process's SELinux domain).
+
+- **Vendor Module Blacklist Support (opt-in, disabled by default)** — Blocks specific vendor-provided `.ko` modules from ever loading (`CONFIG_DEBLOAT_VENDOR_MODULES`), useful for stripping out OEM telemetry/analytics modules that can't otherwise be stopped since they load before KSU/Magisk gets a chance to intervene. Takes a comma-separated list of module names set at build time via `--blacklist-modules`; empty/unset by default, since the module names are OEM-specific (e.g. Xiaomi/MIUI's `millet_*` family) and meaningless — but harmless — on other vendors' devices. Self-disables outside normal boot (recovery/fastbootd), so it never interferes with OTA or flashing.
+  ```
+  su -c "zcat /proc/config.gz | grep CONFIG_DEBLOAT_VENDOR_MODULES"
+  ```
+  Active if it shows the comma-separated list of blocked module names that was set at build time. An empty string means the feature is present in the kernel but no modules were configured to be blocked for this particular build.
 
 - **Ptrace Leak Fix (kernels < 5.16)** — Backports an upstream Linux 5.16 hardening fix that closes a race where `ptrace_message` (e.g. a forked child's PID during a ptrace event) was briefly visible to other readers before the tracer was actually notified, or left stale after detach. Relevant on kernel 5.10/5.15 branches, where this isn't present natively; on 6.1+ branches it's already upstream, so nothing is patched there. There's no `/proc` or `/sys` flag to check this directly — it's a kernel-internal timing/security fix, not a toggle.
 
