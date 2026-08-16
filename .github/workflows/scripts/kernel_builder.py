@@ -754,12 +754,66 @@ CONFIG_NTSYNC=y
         if kconfig_file.exists():
             with open(kconfig_file, "r") as f:
                 content = f.read()
-            content = re.sub(r'(config LSM.*?)(default .*)(\n.*?help)',
-                           lambda m: m.group(1) + ('lockdown,baseband_guard' if 'lockdown' in m.group(2) and 'baseband_guard' not in m.group(2) else m.group(2)) + m.group(3),
-                           content, flags=re.DOTALL)
+            # Mirrors the project's own officially-documented CI one-liner
+            # (github.com/vc-teahouse/Baseband-guard README, "如果你正在使用
+            # Github Action云编译" section):
+            #   sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ {
+            #     /baseband_guard/! s/selinux/selinux,baseband_guard/ } }'
+            #     security/Kconfig
+            # Scoped strictly between the `config LSM` and `help` lines so it
+            # can't accidentally touch an unrelated config block that happens
+            # to contain the word "selinux" elsewhere in the file.
+            lines = content.split('\n')
+            in_lsm_block = False
+            for i, line in enumerate(lines):
+                if line.strip() == 'config LSM':
+                    in_lsm_block = True
+                elif in_lsm_block and line.strip() == 'help':
+                    in_lsm_block = False
+                elif in_lsm_block and re.match(r'^\s*default', line):
+                    if 'selinux' in line and 'baseband_guard' not in line:
+                        lines[i] = line.replace('selinux', 'selinux,baseband_guard', 1)
+            content = '\n'.join(lines)
             with open(kconfig_file, "w") as f:
                 f.write(content)
         self._mark("baseband_guard", "applied")
+
+    def add_vendor_module_blacklist(self):
+        """Blocks specific vendor-provided .ko modules from ever loading
+        (CONFIG_DEBLOAT_VENDOR_MODULES) - useful for OEM telemetry/analytics
+        modules that can't otherwise be stopped since they load before
+        KSU/Magisk gets a chance to intervene. Self-disables outside normal
+        boot (recovery/fastbootd) so OTA/flashing is never affected - see
+        the patch's own is_normal_boot() check. Two source-layout variants
+        exist upstream (kernel/module.c pre-6.1 vs kernel/module/main.c on
+        6.1+, since the file was split into a directory)."""
+        if not self.config.blacklist_modules:
+            self._mark("vendor_module_blacklist", "skipped", "not requested")
+            return
+        logger.info("=== Adding vendor module blacklist ===")
+        common_dir = self.work_dir / "common"
+        if not common_dir.exists():
+            self._mark("vendor_module_blacklist", "failed", "common/ missing")
+            return
+        if self.config.kernel_version in ("5.10", "5.15"):
+            patch_name = "vendor_modules_blacklist_5.15_and_below.patch"
+        else:
+            patch_name = "vendor_modules_blacklist_6.1_and_above.patch"
+        patch_file = Path(__file__).parent / "patches" / patch_name
+        if not patch_file.exists():
+            self._mark("vendor_module_blacklist", "failed", f"{patch_name} missing")
+            return
+        result = self._run_cmd(f"patch -p1 -d {common_dir} < {patch_file}", check=False)
+        if result.returncode != 0:
+            logger.warning(f"{patch_name} did not apply cleanly - source may have "
+                          "changed, continuing without the blacklist")
+            self._mark("vendor_module_blacklist", "failed", "did not apply cleanly")
+            return
+        config_file = common_dir / "arch/arm64/configs/gki_defconfig"
+        with open(config_file, "a") as f:
+            f.write(f'CONFIG_DEBLOAT_VENDOR_MODULES="{self.config.blacklist_modules}"\n')
+        logger.info(f"Blacklisted vendor modules: {self.config.blacklist_modules}")
+        self._mark("vendor_module_blacklist", "applied", self.config.blacklist_modules)
 
     def apply_droidspaces_support(self):
         """Enables Droidspaces (github.com/ravindu644/Droidspaces-OSS)
@@ -1947,6 +2001,7 @@ CONFIG_NTSYNC=y
             else:
                 self._mark("safemode_disable", "skipped", "not requested")
             self.add_bbg()
+            self.add_vendor_module_blacklist()
             self.apply_susfs_patches()
             self.apply_sukisu_patches()
             self.apply_zram_patches()
