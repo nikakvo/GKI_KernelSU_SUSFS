@@ -43,8 +43,8 @@ class ReleaseGenerator:
 - KPM Support (Kernel Patch Module)
 - Manual Syscall Hooks
 - Magic Mount Support
-- BBR v1 Support (default)
-- BBR v3 Support (android12/13/14 — opt-in)
+- BBR v3 Support
+- BBG (Baseband-guard) Support
 - ZRAM Support
 - LZ4KD Compression Support
 - MGLRU Support (Multi-Gen LRU, enabled by default)
@@ -54,8 +54,11 @@ class ReleaseGenerator:
 - Wireguard Support
 - NTSync Support (Winlator/Wine NT synchronization primitives)
 - Droidspaces Support (android12/13/14 — real container namespaces)
-- BBG Baseband-guard Support (opt-in)
 - Vendor Module Blacklist Support (opt-in, disabled by default)
+- Additional TCP Congestion Control Algorithms (BIC, Westwood, HTCP)
+- TTL/Hop-Limit Target Support (netfilter)
+- Connection Mark (connmark) Support (netfilter)
+- CIFS/SMB Network Filesystem Support
 - Ptrace Leak Fix (kernels < 5.16)
 - Thin LTO
 
@@ -73,17 +76,18 @@ class ReleaseGenerator:
 
 - **Magic Mount Support** — Overlay-based mounting system that lets root modules modify the filesystem without altering the underlying partitions directly, improving compatibility and reducing detection surface.
 
-- **BBR v1 Support (default)** — TCP congestion control algorithm developed by Google, providing better throughput and lower latency than traditional algorithms (e.g. CUBIC) on modern networks, especially with packet loss or variable bandwidth.
-  ```
-  su -c cat /proc/sys/net/ipv4/tcp_congestion_control
-  ```
-  Active if output is `bbr`.
-
-- **BBRv3 Support (android12/13/14 only, opt-in)** — Google's newer, improved successor to BBR v1 — better fairness with other flows and less bufferbloat under load. Backported via [WildKernels' kABI-compliant patch](https://github.com/WildKernels/kernel_patches/tree/main/common/bbrv3), selected in place of BBR v1 (not on top of it) via the build's `--bbr-version bbr3` option. Only wired up for `android12-5.10`/`android13-5.15`/`android14-6.1` so far, and depends on the patch applying cleanly on that specific branch/sub_level — check this release's build summary if unsure whether a given file has it; the build falls back to BBR v1 automatically if it doesn't apply.
+- **BBR v3 Support (android12/13/14 only)** — Google's newer, improved successor to BBR v1 — better fairness with other flows and less bufferbloat under load. Backported via [WildKernels' kABI-compliant patch](https://github.com/WildKernels/kernel_patches/tree/main/common/bbrv3), selected in place of BBR v1 (not on top of it) via the build's `--bbr-version bbr3` option. Only wired up for `android12-5.10`/`android13-5.15`/`android14-6.1` so far, and depends on the patch applying cleanly on that specific branch/sub_level — check this release's build summary if unsure whether a given file has it; the build falls back to BBR v1 automatically if it doesn't apply.
   ```
   su -c cat /proc/sys/net/ipv4/tcp_congestion_control
   ```
   Active if output is `bbr3` (not `bbr`).
+
+- **BBG (Baseband-guard) Support** — Lightweight LSM ([vc-teahouse/Baseband-guard](https://github.com/vc-teahouse/Baseband-guard)) that hooks the kernel write path to block unauthorized writes to the baseband/modem and other high-value protected partitions/device nodes, denying by default and logging every blocked attempt for traceability. Off unless the build was run with `--bbg`; check this release's build summary for whether a given file has it. Recovery/bootloader-partition protection (`CONFIG_BBG_BLOCK_BOOT`/`CONFIG_BBG_BLOCK_RECOVERY`) is deliberately left disabled regardless, since enabling it has caused real-world conflicts with kernel-zip flashing and recovery tools on other BBG-enabled kernels — only the core baseband protection is on.
+  ```
+  su -c "zcat /proc/config.gz | grep CONFIG_BBG"
+  su -c "dmesg | grep -c baseband_guard"
+  ```
+  Active if `CONFIG_BBG=y` is shown and the dmesg count is non-zero (BBG logs a line every time it evaluates a process's SELinux domain).
 
 - **LZ4KD Support** — Enhanced LZ4 compression algorithm for ZRAM, offering better compression ratios with minimal CPU overhead — improves effective RAM capacity by compressing swapped-out memory pages.
   ```
@@ -138,18 +142,29 @@ class ReleaseGenerator:
   ```
   Active if it prints `namespace-test-ok` without an error.
 
-- **BBG Baseband-guard Support (opt-in)** — Lightweight LSM ([vc-teahouse/Baseband-guard](https://github.com/vc-teahouse/Baseband-guard)) that hooks the kernel write path to block unauthorized writes to the baseband/modem and other high-value protected partitions/device nodes, denying by default and logging every blocked attempt for traceability. Off unless the build was run with `--bbg`; check this release's build summary for whether a given file has it. Recovery/bootloader-partition protection (`CONFIG_BBG_BLOCK_BOOT`/`CONFIG_BBG_BLOCK_RECOVERY`) is deliberately left disabled regardless, since enabling it has caused real-world conflicts with kernel-zip flashing and recovery tools on other BBG-enabled kernels — only the core baseband protection is on.
+- **Additional TCP Congestion Control Algorithms** — Adds BIC, TCP Westwood+, and H-TCP as selectable congestion control algorithms alongside the existing BBR/BBRv1/BBRv3/CUBIC/Reno options — doesn't change the system default (still BBR/BBRv3 via `--bbr-version`), just makes more algorithms available to switch to at runtime for different network conditions (Westwood in particular is tuned for lossy/wireless links, which can suit some mobile network + VPN tunnel combinations better than BBR).
   ```
-  su -c "zcat /proc/config.gz | grep CONFIG_BBG"
-  su -c "dmesg | grep -c baseband_guard"
+  su -c cat /proc/sys/net/ipv4/tcp_available_congestion_control
   ```
-  Active if `CONFIG_BBG=y` is shown and the dmesg count is non-zero (BBG logs a line every time it evaluates a process's SELinux domain).
+  Active if `bic`, `westwood`, and `htcp` all appear in the list (switch to one with `su -c "sysctl net.ipv4.tcp_congestion_control=westwood"`).
 
-- **Vendor Module Blacklist Support (opt-in, disabled by default)** — Blocks specific vendor-provided `.ko` modules from ever loading (`CONFIG_DEBLOAT_VENDOR_MODULES`), useful for stripping out OEM telemetry/analytics modules that can't otherwise be stopped since they load before KSU/Magisk gets a chance to intervene. Takes a comma-separated list of module names set at build time via `--blacklist-modules`; empty/unset by default, since the module names are OEM-specific (e.g. Xiaomi/MIUI's `millet_*` family) and meaningless — but harmless — on other vendors' devices. Self-disables outside normal boot (recovery/fastbootd), so it never interferes with OTA or flashing.
+- **TTL/Hop-Limit Target Support (netfilter)** — Kernel-level `iptables`/`ip6tables` target (`CONFIG_NETFILTER_XT_TARGET_HL`) that lets firewall rules rewrite a packet's TTL (IPv4) or Hop Limit (IPv6) field. Commonly used to normalize the TTL of tethered/hotspot traffic back to what it'd be if it originated directly from the device, since carriers often detect tethering by noticing the TTL decrement that happens when traffic is routed through another device.
   ```
-  su -c "zcat /proc/config.gz | grep CONFIG_DEBLOAT_VENDOR_MODULES"
+  su -c "iptables -t mangle -A POSTROUTING -j TTL --ttl-set 65 && iptables -t mangle -D POSTROUTING -j TTL --ttl-set 65"
   ```
-  Active if it shows the comma-separated list of blocked module names that was set at build time. An empty string means the feature is present in the kernel but no modules were configured to be blocked for this particular build.
+  Active if both commands run with no "No chain/target/match by that name" error.
+
+- **Connection Mark (connmark) Support (netfilter)** — Kernel-level `iptables`/`ip6tables` target and match (`CONFIG_NETFILTER_XT_CONNMARK`) that lets firewall rules tag entire connections (not just individual packets) with a mark, so later packets belonging to the same connection can be matched and handled consistently. Used for advanced firewall, QoS, and policy-routing setups — often paired with the TTL target above for more robust tethering-passthrough rules.
+  ```
+  su -c "iptables -t mangle -A POSTROUTING -j CONNMARK --set-mark 1 && iptables -t mangle -D POSTROUTING -j CONNMARK --set-mark 1"
+  ```
+  Active if both commands run with no "No chain/target/match by that name" error.
+
+- **CIFS/SMB Network Filesystem Support** — Kernel-level SMB3/CIFS client (`CONFIG_CIFS`), letting a Samba or Windows network share be mounted directly (`mount -t cifs //server/share /mnt/point`) instead of relying on an app-based SMB browser. Requires network connectivity to an actual SMB server to mount something real, but the driver itself is always present in the kernel regardless.
+  ```
+  su -c "cat /proc/filesystems | grep cifs"
+  ```
+  Active if `cifs` is listed.
 
 - **Ptrace Leak Fix (kernels < 5.16)** — Backports an upstream Linux 5.16 hardening fix that closes a race where `ptrace_message` (e.g. a forked child's PID during a ptrace event) was briefly visible to other readers before the tracer was actually notified, or left stale after detach. Relevant on kernel 5.10/5.15 branches, where this isn't present natively; on 6.1+ branches it's already upstream, so nothing is patched there. There's no `/proc` or `/sys` flag to check this directly — it's a kernel-internal timing/security fix, not a toggle.
 
