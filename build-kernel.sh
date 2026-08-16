@@ -59,6 +59,22 @@ DROIDSPACES="1"
 # Congestion control: "none", "bbr1", or "bbr3" (android12/13/14 only
 # so far - see README's "BBRv3" note).
 BBR_VERSION="bbr3"
+# Set to "1" to enable Baseband-guard (blocks unauthorized writes to
+# baseband/modem and other protected partitions at the LSM level).
+BBG="1"
+# Comma-separated vendor module names to block from ever loading
+# (CONFIG_DEBLOAT_VENDOR_MODULES). Auto-disables itself outside normal
+# boot (recovery/fastbootd), so it never interferes with OTA/flashing.
+# Leave empty ("") to disable this feature entirely.
+BLACKLIST_MODULES=""
+# Set to "1" to permanently patch out KernelSU/SukiSU volume-key safe-mode
+# detection. Defaults OFF: SukiSU-Ultra fixed the safe-mode bug upstream
+# (see the "Safe Mode Disabled" fix in nikakvo/GKI_KernelSU_SUSFS actions
+# history), so this patch is no longer needed for most people - only turn
+# it on if you specifically want safe-mode detection permanently disabled
+# regardless of what upstream does. Most people should rely on
+# YABP (github.com/Magisk-Modules-Repo/YetAnotherBootloopProtector) instead.
+DISABLE_SAFEMODE=""
 
 # ============================================================
 #  Dependency check / auto-install
@@ -181,6 +197,9 @@ for key, entries in data.items():
         [ -n "$t" ] && EXTRA_ARGS+=(--kernel-tag "$t")
         [ -n "$lts" ] && EXTRA_ARGS+=(--lts)
         [ -n "$DROIDSPACES" ] && EXTRA_ARGS+=(--droidspaces)
+        [ -n "$BBG" ] && EXTRA_ARGS+=(--bbg)
+        [ -n "$BLACKLIST_MODULES" ] && EXTRA_ARGS+=(--blacklist-modules "$BLACKLIST_MODULES")
+        [ -n "$DISABLE_SAFEMODE" ] && EXTRA_ARGS+=(--disable-safemode)
 
         if python3 build.py \
             --android "$a" \
@@ -189,7 +208,6 @@ for key, entries in data.items():
             --os-patch "$p" \
             --bbr-version "$BBR_VERSION" \
             --zram \
-            --disable-safemode \
             --workspace "$WORKSPACE" \
             "${EXTRA_ARGS[@]}" \
             2>&1 | tee -a "$LOGFILE"; then
@@ -250,6 +268,9 @@ EXTRA_ARGS=()
 [ -n "$KERNEL_TAG" ] && EXTRA_ARGS+=(--kernel-tag "$KERNEL_TAG")
 [ -n "$IS_LTS" ] && EXTRA_ARGS+=(--lts)
 [ -n "$DROIDSPACES" ] && EXTRA_ARGS+=(--droidspaces)
+[ -n "$BBG" ] && EXTRA_ARGS+=(--bbg)
+[ -n "$BLACKLIST_MODULES" ] && EXTRA_ARGS+=(--blacklist-modules "$BLACKLIST_MODULES")
+[ -n "$DISABLE_SAFEMODE" ] && EXTRA_ARGS+=(--disable-safemode)
 
 python3 build.py \
     --android "$ANDROID_VERSION" \
@@ -258,7 +279,6 @@ python3 build.py \
     --os-patch "$OS_PATCH" \
     --bbr-version "$BBR_VERSION" \
     --zram \
-    --disable-safemode \
     --workspace "$WORKSPACE" \
     "${EXTRA_ARGS[@]}" \
     2>&1 | tee "$LOGFILE"
