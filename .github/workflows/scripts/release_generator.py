@@ -54,7 +54,6 @@ class ReleaseGenerator:
 - Wireguard Support
 - NTSync Support (Winlator/Wine NT synchronization primitives)
 - Droidspaces Support (android12/13/14 — real container namespaces)
-- Vendor Module Blacklist Support (opt-in, disabled by default)
 - Additional TCP Congestion Control Algorithms (BIC, Westwood, HTCP)
 - TTL/Hop-Limit Target Support (netfilter)
 - Connection Mark (connmark) Support (netfilter)
