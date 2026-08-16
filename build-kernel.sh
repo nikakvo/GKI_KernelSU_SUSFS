@@ -75,6 +75,14 @@ BLACKLIST_MODULES=""
 # regardless of what upstream does. Most people should rely on
 # YABP (github.com/Magisk-Modules-Repo/YetAnotherBootloopProtector) instead.
 DISABLE_SAFEMODE=""
+# ZRAM (LZ4KD compression). Was hardcoded on before - now toggleable.
+# Defaults to enabled to preserve current behavior.
+USE_ZRAM="1"
+# MGLRU / PSI / NTSync - all have been unconditionally on until now.
+# Toggleable here now for testing; default on to preserve current behavior.
+USE_MGLRU="1"
+USE_PSI="1"
+USE_NTSYNC="1"
 
 # ============================================================
 #  Dependency check / auto-install
@@ -200,6 +208,10 @@ for key, entries in data.items():
         [ -n "$BBG" ] && EXTRA_ARGS+=(--bbg)
         [ -n "$BLACKLIST_MODULES" ] && EXTRA_ARGS+=(--blacklist-modules "$BLACKLIST_MODULES")
         [ -n "$DISABLE_SAFEMODE" ] && EXTRA_ARGS+=(--disable-safemode)
+        [ -n "$USE_ZRAM" ] && EXTRA_ARGS+=(--zram)
+        [ -z "$USE_MGLRU" ] && EXTRA_ARGS+=(--no-mglru)
+        [ -z "$USE_PSI" ] && EXTRA_ARGS+=(--no-psi)
+        [ -z "$USE_NTSYNC" ] && EXTRA_ARGS+=(--no-ntsync)
 
         if python3 build.py \
             --android "$a" \
@@ -207,7 +219,6 @@ for key, entries in data.items():
             --sub-level "$s" \
             --os-patch "$p" \
             --bbr-version "$BBR_VERSION" \
-            --zram \
             --workspace "$WORKSPACE" \
             "${EXTRA_ARGS[@]}" \
             2>&1 | tee -a "$LOGFILE"; then
@@ -271,6 +282,10 @@ EXTRA_ARGS=()
 [ -n "$BBG" ] && EXTRA_ARGS+=(--bbg)
 [ -n "$BLACKLIST_MODULES" ] && EXTRA_ARGS+=(--blacklist-modules "$BLACKLIST_MODULES")
 [ -n "$DISABLE_SAFEMODE" ] && EXTRA_ARGS+=(--disable-safemode)
+[ -n "$USE_ZRAM" ] && EXTRA_ARGS+=(--zram)
+[ -z "$USE_MGLRU" ] && EXTRA_ARGS+=(--no-mglru)
+[ -z "$USE_PSI" ] && EXTRA_ARGS+=(--no-psi)
+[ -z "$USE_NTSYNC" ] && EXTRA_ARGS+=(--no-ntsync)
 
 python3 build.py \
     --android "$ANDROID_VERSION" \
@@ -278,7 +293,6 @@ python3 build.py \
     --sub-level "$SUB_LEVEL" \
     --os-patch "$OS_PATCH" \
     --bbr-version "$BBR_VERSION" \
-    --zram \
     --workspace "$WORKSPACE" \
     "${EXTRA_ARGS[@]}" \
     2>&1 | tee "$LOGFILE"
