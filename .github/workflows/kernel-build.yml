@@ -31,12 +31,12 @@ on:
         description: 'Sub Level Version'
         required: true
         type: string
-        default: '211'
+        default: '124'
       os_patch_level:
         description: 'OS Patch Level'
         required: true
         type: string
-        default: '2026-06'
+        default: '2025-02'
       revision:
         description: 'Android 12 Revision (optional)'
         required: false
@@ -80,6 +80,21 @@ on:
         required: true
         type: boolean
         default: true
+      use_mglru:
+        description: 'Enable MGLRU (Multi-Gen LRU)'
+        required: true
+        type: boolean
+        default: true
+      use_psi:
+        description: 'Enable PSI (Pressure Stall Information)'
+        required: true
+        type: boolean
+        default: true
+      use_ntsync:
+        description: 'Enable NTSync (Winlator/Wine NT sync primitives)'
+        required: true
+        type: boolean
+        default: true
       BBG:
         description: 'Enable Baseband-guard'
         required: true
@@ -118,12 +133,12 @@ on:
           - none
           - bbr1
           - bbr3
-        default: bbr3
+        default: bbr1
       make_release:
         description: 'Create GitHub Release'
         required: true
         type: boolean
-        default: false
+        default: true
       send_telegram:
         description: 'Send Telegram notification'
         required: true
@@ -239,6 +254,9 @@ jobs:
 
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
+          [ "${{ github.event.inputs.use_mglru }}" = "false" ] && ARGS="$ARGS --no-mglru"
+          [ "${{ github.event.inputs.use_psi }}" = "false" ] && ARGS="$ARGS --no-psi"
+          [ "${{ github.event.inputs.use_ntsync }}" = "false" ] && ARGS="$ARGS --no-ntsync"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
           [ -n "${{ github.event.inputs.blacklist_modules }}" ] && ARGS="$ARGS --blacklist-modules \"${{ github.event.inputs.blacklist_modules }}\""
           [ "${{ github.event.inputs.DROIDSPACES }}" = "true" ] && ARGS="$ARGS --droidspaces"
