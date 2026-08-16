@@ -40,11 +40,26 @@ on:
         required: true
         type: boolean
         default: true
+      use_mglru:
+        description: 'Enable MGLRU (Multi-Gen LRU)'
+        required: true
+        type: boolean
+        default: true
+      use_psi:
+        description: 'Enable PSI (Pressure Stall Information)'
+        required: true
+        type: boolean
+        default: true
+      use_ntsync:
+        description: 'Enable NTSync (Winlator/Wine NT sync primitives)'
+        required: true
+        type: boolean
+        default: true
       BBG:
         description: 'Enable Baseband-guard'
         required: true
         type: boolean
-        default: true
+        default: false
       blacklist_modules:
         description: 'Comma-separated vendor module names to block from loading (CONFIG_DEBLOAT_VENDOR_MODULES). Leave empty to disable. Auto-disables outside normal boot (recovery/fastbootd).'
         required: false
@@ -73,7 +88,7 @@ on:
           - none
           - bbr1
           - bbr3
-        default: bbr3
+        default: bbr1
       use_cache:
         description: 'Use ccache (saves/restores build cache via a "Build Cache" GitHub Release - disable for a fully private run with nothing published, e.g. when make_release is also off)'
         required: true
@@ -204,6 +219,9 @@ jobs:
 
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
+          [ "${{ github.event.inputs.use_mglru }}" = "false" ] && ARGS="$ARGS --no-mglru"
+          [ "${{ github.event.inputs.use_psi }}" = "false" ] && ARGS="$ARGS --no-psi"
+          [ "${{ github.event.inputs.use_ntsync }}" = "false" ] && ARGS="$ARGS --no-ntsync"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
           [ -n "${{ github.event.inputs.blacklist_modules }}" ] && ARGS="$ARGS --blacklist-modules \"${{ github.event.inputs.blacklist_modules }}\""
           [ "${{ github.event.inputs.DROIDSPACES }}" = "true" ] && ARGS="$ARGS --droidspaces"
