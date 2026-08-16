@@ -31,12 +31,12 @@ on:
         description: 'Sub Level Version'
         required: true
         type: string
-        default: '124'
+        default: '211'
       os_patch_level:
         description: 'OS Patch Level'
         required: true
         type: string
-        default: '2025-02'
+        default: '2026-06'
       revision:
         description: 'Android 12 Revision (optional)'
         required: false
@@ -118,12 +118,12 @@ on:
           - none
           - bbr1
           - bbr3
-        default: bbr1
+        default: bbr3
       make_release:
         description: 'Create GitHub Release'
         required: true
         type: boolean
-        default: true
+        default: false
       send_telegram:
         description: 'Send Telegram notification'
         required: true
