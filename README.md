@@ -170,6 +170,8 @@ Tracked families: `android12-5.10`, `android13-5.15`, `android14-6.1`, `android1
 
 > **Note on android16/17:** SukiSU-Ultra does not yet fully support kernel 6.12+ — see [SukiSU-Ultra#921](https://github.com/SukiSU-Ultra/SukiSU-Ultra/issues/921) (`netlink_kernel_cfg`/`security_add_hooks` API breakage). These entries are tracked for when upstream support lands, but currently fail to compile. Leave them `"enabled": false` until that issue is resolved.
 
+> **Note on android15/16/17 build system:** this project's entire build pipeline (`kernel_builder.py`) is written against the legacy `build/build.sh` framework (`BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh`), which is what `android12-5.10` through `android14-6.1` still use. Starting with `android15-6.6`, Google's kernel/common branches build exclusively through **Bazel/Kleaf** (`tools/bazel run //common:kernel_aarch64_dist`) — a fundamentally different build invocation, artifact/output layout, and a hermetic self-contained toolchain instead of a system-installed `clang`/`ccache`. None of that is wired up here yet. Combined with the SukiSU-Ultra 6.12+ compatibility gap above, **only `android12-5.10`, `android13-5.15`, and `android14-6.1` are actually buildable with this project right now** — `android15-6.6`/`android16-6.12`/`android17-6.18` matrix entries exist purely for future tracking and will fail if enabled.
+
 Each entry looks like:
 ```json
 {"sub_level": "194", "os_patch_level": "2025-12", "kernel_tag": "android13-5.15-2025-12_r10", "enabled": true}
