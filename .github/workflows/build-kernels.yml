@@ -44,7 +44,7 @@ on:
         description: 'Enable Baseband-guard'
         required: true
         type: boolean
-        default: false
+        default: true
       blacklist_modules:
         description: 'Comma-separated vendor module names to block from loading (CONFIG_DEBLOAT_VENDOR_MODULES). Leave empty to disable. Auto-disables outside normal boot (recovery/fastbootd).'
         required: false
@@ -73,7 +73,7 @@ on:
           - none
           - bbr1
           - bbr3
-        default: bbr1
+        default: bbr3
       use_cache:
         description: 'Use ccache (saves/restores build cache via a "Build Cache" GitHub Release - disable for a fully private run with nothing published, e.g. when make_release is also off)'
         required: true
