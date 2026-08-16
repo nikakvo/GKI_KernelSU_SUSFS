@@ -131,6 +131,27 @@ CONFIG_WIREGUARD=y
 
 # === NTSync Config (NT sync primitives, e.g. for Winlator/Wine) ===
 CONFIG_NTSYNC=y
+
+# === Additional TCP congestion control algorithms (selectable at
+# runtime via `sysctl net.ipv4.tcp_congestion_control`; does NOT change
+# the system default, which stays bbr3/bbr1 via --bbr-version - these
+# just become available options alongside it). TCP_CONG_ADVANCED is
+# already on for branches with BBRv3 wired in, which explicitly turns
+# these off despite their own Kconfig defaults - so they need to be
+# re-enabled explicitly here, same as BIC/CUBIC/Westwood/HTCP's own
+# "default y/m" gets silently overridden otherwise.
+CONFIG_TCP_CONG_BIC=y
+CONFIG_TCP_CONG_WESTWOOD=y
+CONFIG_TCP_CONG_HTCP=y
+
+# === Netfilter TTL/Hop-Limit rewrite + connection marking (tethering
+# TTL-passthrough bypass, advanced firewall/QoS/policy-routing setups) ===
+CONFIG_NETFILTER_XT_TARGET_HL=y
+CONFIG_NETFILTER_XT_CONNMARK=y
+
+# === CIFS/SMB network filesystem client (kernel-level `mount -t cifs`
+# support for Samba/Windows network shares) ===
+CONFIG_CIFS=y
 """
 
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
