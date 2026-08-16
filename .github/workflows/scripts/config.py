@@ -113,6 +113,9 @@ class BuildConfig:
     susfs_commit: Optional[str] = None
     use_zram: bool = False
     use_kpm: bool = True
+    use_mglru: bool = True
+    use_psi: bool = True
+    use_ntsync: bool = True
     use_bbg: bool = False
     blacklist_modules: str = ""
     use_droidspaces: bool = False
@@ -195,6 +198,9 @@ class BuildConfig:
             "kernelsu_commit": self.kernelsu_commit,
             "use_zram": self.use_zram,
             "use_kpm": self.use_kpm,
+            "use_mglru": self.use_mglru,
+            "use_psi": self.use_psi,
+            "use_ntsync": self.use_ntsync,
             "use_bbg": self.use_bbg,
             "blacklist_modules": self.blacklist_modules,
             "use_droidspaces": self.use_droidspaces,
