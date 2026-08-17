@@ -31,12 +31,12 @@ on:
         description: 'Sub Level Version'
         required: true
         type: string
-        default: '211'
+        default: '124'
       os_patch_level:
         description: 'OS Patch Level'
         required: true
         type: string
-        default: '2026-06'
+        default: '2025-02'
       revision:
         description: 'Android 12 Revision (optional)'
         required: false
@@ -95,6 +95,11 @@ on:
         required: true
         type: boolean
         default: true
+      allow_bazel:
+        description: 'Allow building Bazel/Kleaf-only branches (android15-6.6+, some newer android14-6.1 sub_levels). OFF by default - a confirmed real-device bootloop was traced to bypassing KMI enforcement to make a Bazel build compile. When enabled, KMI enforcement stays ON, so genuine violations fail the build instead of producing an unverified Image.'
+        required: true
+        type: boolean
+        default: false
       BBG:
         description: 'Enable Baseband-guard'
         required: true
@@ -133,12 +138,12 @@ on:
           - none
           - bbr1
           - bbr3
-        default: bbr3
+        default: bbr1
       make_release:
         description: 'Create GitHub Release'
         required: true
         type: boolean
-        default: false
+        default: true
       send_telegram:
         description: 'Send Telegram notification'
         required: true
@@ -257,6 +262,7 @@ jobs:
           [ "${{ github.event.inputs.use_mglru }}" = "false" ] && ARGS="$ARGS --no-mglru"
           [ "${{ github.event.inputs.use_psi }}" = "false" ] && ARGS="$ARGS --no-psi"
           [ "${{ github.event.inputs.use_ntsync }}" = "false" ] && ARGS="$ARGS --no-ntsync"
+          [ "${{ github.event.inputs.allow_bazel }}" = "true" ] && ARGS="$ARGS --allow-bazel"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
           [ -n "${{ github.event.inputs.blacklist_modules }}" ] && ARGS="$ARGS --blacklist-modules \"${{ github.event.inputs.blacklist_modules }}\""
           [ "${{ github.event.inputs.DROIDSPACES }}" = "true" ] && ARGS="$ARGS --droidspaces"
