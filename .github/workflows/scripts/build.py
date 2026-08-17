@@ -49,6 +49,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-ntsync", action="store_true",
                         help="Disable NTSync (Winlator/Wine NT sync primitives). On by default.")
     parser.add_argument("--bbg", action="store_true")
+    parser.add_argument("--allow-bazel", action="store_true",
+                        help="Allow building branches that require Bazel/Kleaf instead of the "
+                             "legacy build/build.sh script (android15-6.6+, and some newer "
+                             "android14-6.1 sub_levels that have already migrated). OFF by "
+                             "default: without this flag, the build refuses to start on a "
+                             "Bazel-only branch rather than silently building one. When this "
+                             "IS passed, KMI symbol-list strict enforcement is left fully ON "
+                             "(unlike some other community kernel builders) - if the patches "
+                             "genuinely violate the KMI symbol list, the build will fail loudly "
+                             "with the violation list rather than silently producing an Image "
+                             "that may not be ABI-compatible with the device's vendor .ko "
+                             "modules. A confirmed real-device bootloop was traced back to this "
+                             "exact bypass, so it is not used here.")
     parser.add_argument("--blacklist-modules", default="",
                         help="Comma-separated list of vendor module names to block from loading "
                              "(CONFIG_DEBLOAT_VENDOR_MODULES). Auto-disables itself during "
@@ -102,6 +115,7 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         use_psi=not args.no_psi,
         use_ntsync=not args.no_ntsync,
         use_bbg=args.bbg,
+        allow_bazel=args.allow_bazel,
         blacklist_modules=args.blacklist_modules,
         use_droidspaces=args.droidspaces,
         support_op8e=args.op8e,
