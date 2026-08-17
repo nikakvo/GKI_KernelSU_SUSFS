@@ -83,6 +83,16 @@ USE_ZRAM="1"
 USE_MGLRU="1"
 USE_PSI="1"
 USE_NTSYNC="1"
+# Set to "1" to allow building branches/sub_levels that require Bazel/Kleaf
+# instead of the legacy build/build.sh script (android15-6.6+, and some
+# newer android14-6.1 sub_levels that have already migrated). OFF by
+# default - without this, the build refuses to start on a Bazel-only
+# branch/tag rather than silently building one. A confirmed real-device
+# bootloop was traced back to a Bazel build that disabled KMI symbol-list
+# enforcement to get the build to compile; when this flag IS enabled,
+# that enforcement is left fully ON, so a genuine symbol-list violation
+# fails the build loudly instead of producing an unverified Image.
+ALLOW_BAZEL=""
 
 # ============================================================
 #  Dependency check / auto-install
@@ -212,6 +222,7 @@ for key, entries in data.items():
         [ -z "$USE_MGLRU" ] && EXTRA_ARGS+=(--no-mglru)
         [ -z "$USE_PSI" ] && EXTRA_ARGS+=(--no-psi)
         [ -z "$USE_NTSYNC" ] && EXTRA_ARGS+=(--no-ntsync)
+        [ -n "$ALLOW_BAZEL" ] && EXTRA_ARGS+=(--allow-bazel)
 
         if python3 build.py \
             --android "$a" \
@@ -286,6 +297,7 @@ EXTRA_ARGS=()
 [ -z "$USE_MGLRU" ] && EXTRA_ARGS+=(--no-mglru)
 [ -z "$USE_PSI" ] && EXTRA_ARGS+=(--no-psi)
 [ -z "$USE_NTSYNC" ] && EXTRA_ARGS+=(--no-ntsync)
+[ -n "$ALLOW_BAZEL" ] && EXTRA_ARGS+=(--allow-bazel)
 
 python3 build.py \
     --android "$ANDROID_VERSION" \
