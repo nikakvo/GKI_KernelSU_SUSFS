@@ -1815,6 +1815,19 @@ CONFIG_CIFS=y
         is_legacy = (self.work_dir / "build/build.sh").exists()
         bazel_cache = Path.home() / ".cache" / "bazel"
 
+        if not is_legacy and not self.config.allow_bazel:
+            logger.error(
+                "This branch/sub_level requires Bazel/Kleaf (no build/build.sh present in "
+                "the synced source) - refusing to build. A prior Bazel build on a different "
+                "branch was confirmed to cause a real-device bootloop, traced back to "
+                "disabling KMI symbol-list enforcement to get the build to compile. Pass "
+                "--allow-bazel to build anyway (KMI enforcement will be left ON, so if the "
+                "patches genuinely violate the symbol list, the build will fail with the "
+                "violation list instead of silently producing a possibly-incompatible Image)."
+            )
+            self._mark("build", "failed", "Bazel required but --allow-bazel not passed")
+            return False
+
         # Known LLVM/ThinLTO verifier bug on Bazel/Kleaf branches (6.6 and
         # up so far): cross-module inlining under ThinLTO can produce an
         # inlined call in a function with debug info that's missing a
@@ -1833,28 +1846,33 @@ CONFIG_CIFS=y
                 return "LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\""
             # Building //common:kernel_aarch64/Image directly (instead of
             # the full //common:kernel_aarch64_dist target) matches
-            # WildKernels/GKI_KernelSU_SUSFS's own build-kernel action.
-            # The _dist target also runs GKI certification/ABI-validation
-            # actions we don't need for a custom KernelSU/SUSFS kernel;
-            # building the bare Image skips that dependency chain
-            # entirely - which is likely also why WildKernels doesn't need
-            # any KMI-strict-mode workaround. The Image lands in the same
-            # bazel-bin/common/kernel_aarch64/ path our artifact-gathering
-            # code already expects, so no other changes are needed here.
-            # --nokmi_symbol_list_strict_mode kept as a defensive no-op in
-            # case this target still runs that check on some branch.
+            # WildKernels/GKI_KernelSU_SUSFS's own build-kernel action,
+            # and skips the GKI certification/ABI-validation actions that
+            # are part of the _dist target's dependency chain.
+            #
+            # IMPORTANT: KMI symbol-list strict enforcement is deliberately
+            # left ON here (no --nokmi_symbol_list_strict_mode /
+            # --nokmi_symbol_list_violations_check, and protected_exports
+            # is no longer stripped - see remove_protected_exports()'s call
+            # site below). A prior build that disabled this enforcement
+            # compiled successfully but caused a confirmed real-device
+            # bootloop - the resulting Image's exported symbol table
+            # didn't actually match what the device's vendor .ko modules
+            # expected, and nothing caught that until it was flashed. If
+            # the patches genuinely violate the KMI symbol list now, the
+            # build will fail loudly with the specific violations instead
+            # - which is strictly more useful than a silent, unverified
+            # "success".
             lto_flag = "" if self.config.kernel_version in _THIN_LTO_BUG_KERNEL_VERSIONS else "--lto=thin "
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
-                    f"{lto_flag}--nokmi_symbol_list_strict_mode "
-                    f"--nokmi_symbol_list_violations_check //common:kernel_aarch64/Image")
+                    f"{lto_flag}//common:kernel_aarch64/Image")
 
         try:
             if is_legacy:
                 logger.info("Using legacy build method...")
             else:
-                logger.info("Using Bazel build method...")
+                logger.info("Using Bazel build method (KMI enforcement left ON)...")
                 self._canonicalize_defconfig()
-                self.remove_protected_exports()
                 bazel_cache.mkdir(parents=True, exist_ok=True)
 
             # No fallback retry on failure - if the build fails, it fails,
@@ -1881,7 +1899,7 @@ CONFIG_CIFS=y
         logger.info("=== Patching Image file (KPM) ===")
         self._chdir(self.work_dir)
 
-        if self.config.android_version in ["android12", "android13"]:
+        if (self.work_dir / "build/build.sh").exists():
             image_dir = self.work_dir / f"out/{self.config.android_version}-{self.config.kernel_version}/dist"
         else:
             image_dir = self.work_dir / "bazel-bin/common/kernel_aarch64"
@@ -1900,7 +1918,7 @@ CONFIG_CIFS=y
         bootimgs_dir.mkdir(exist_ok=True)
         artifacts = []
 
-        if self.config.android_version in ["android12", "android13"]:
+        if (self.work_dir / "build/build.sh").exists():
             image_source = self.work_dir / f"out/{self.config.android_version}-{self.config.kernel_version}/dist"
         else:
             image_source = self.work_dir / "bazel-bin/common/kernel_aarch64"
