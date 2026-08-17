@@ -117,6 +117,7 @@ class BuildConfig:
     use_psi: bool = True
     use_ntsync: bool = True
     use_bbg: bool = False
+    allow_bazel: bool = False
     blacklist_modules: str = ""
     use_droidspaces: bool = False
     support_op8e: bool = False
@@ -202,6 +203,7 @@ class BuildConfig:
             "use_psi": self.use_psi,
             "use_ntsync": self.use_ntsync,
             "use_bbg": self.use_bbg,
+            "allow_bazel": self.allow_bazel,
             "blacklist_modules": self.blacklist_modules,
             "use_droidspaces": self.use_droidspaces,
             "support_op8e": self.support_op8e,
