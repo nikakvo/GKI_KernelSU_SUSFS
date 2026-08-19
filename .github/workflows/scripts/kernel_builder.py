@@ -842,15 +842,20 @@ CONFIG_CIFS=y
         (ANDROID_KABI_RESERVE(N) -> ANDROID_KABI_USE(N, ...)) so the
         checksum doesn't move.
 
-        Upstream ships 3 variants of the SYSVIPC patch, each claiming a
-        different trio of reserve slots (6/7/8, 3/4/5, or 1/2/3) -
-        because which slots are still free (not already claimed by
-        something else on a given branch) isn't the same across every
-        respin. Rather than hardcoding a guess, this tries all 3 in
-        order (dry-run first, strict context matching - fuzzy matching
-        here risks a false-positive "clean" apply against the WRONG
-        slots, which would silently break kABI in a different way) and
-        applies the first one that actually fits this exact source tree.
+        Upstream ships 4 variants of the SYSVIPC patch: 3 claiming a
+        different trio of ANDROID_KABI_RESERVE slots (6/7/8, 3/4/5, or
+        1/2/3 - which slots are free isn't the same across every
+        respin), plus a 4th "bypass" variant that sidesteps reserve
+        slots entirely (adds the fields inside a '#ifndef __GENKSYMS__'
+        block instead, so it's invisible to the kABI checksum tool
+        regardless of slot availability - added by WildKernels for
+        branches where none of the 3 slot trios are free, e.g.
+        android15-6.6). Rather than hardcoding a guess, this tries all
+        4 in order (dry-run first, strict context matching - fuzzy
+        matching here risks a false-positive "clean" apply against the
+        WRONG slots, which would silently break kABI in a different
+        way) and applies the first one that actually fits this exact
+        source tree.
 
         Only wired up for kernel_version < 6.12 (android12-5.10,
         android13-5.15, android14-6.1, android15-6.6 - the branches
@@ -884,6 +889,20 @@ CONFIG_CIFS=y
             "droidspaces_sysvipc_kabi_slots678.patch",  # upstream's default choice for every below-6.12 branch - tried first
             "droidspaces_sysvipc_kabi_slots345.patch",
             "droidspaces_sysvipc_kabi_slots123.patch",
+            # None of the 3 reserve-slot variants above matched cleanly
+            # on android15-6.6 (all 3 failed at the same hunk - those
+            # specific reserve slots are apparently already claimed by
+            # something else on that branch). WildKernels added this
+            # alternative 10 days after the original 3
+            # ("...using different method", commit 98783ea): instead of
+            # guessing which ANDROID_KABI_RESERVE slot is free, it adds
+            # sysvsem/sysvshm inside a '#ifndef __GENKSYMS__' block
+            # (invisible to the kABI checksum tool entirely) and
+            # comments out the original in-place fields, so it doesn't
+            # depend on reserve-slot availability at all. Tried last so
+            # branches where the slot-based patches already work
+            # (12/13/14) keep using the exact same path as before.
+            "droidspaces_sysvipc_kabi_bypass.patch",
         ]
         applied_variant = None
         self._chdir(common_dir)
@@ -905,11 +924,12 @@ CONFIG_CIFS=y
         if not applied_variant:
             logger.warning(
                 "Droidspaces SYSVIPC kABI patch did not cleanly match any "
-                "of the 3 known ANDROID_KABI_RESERVE slot layouts on this "
-                "branch - task_struct may have diverged further upstream. "
-                "Continuing WITHOUT Droidspaces support (defconfig options "
-                "are not added either, to avoid a bootloop from enabling "
-                "CONFIG_SYSVIPC without the matching kABI fix)."
+                "of the 4 known variants (3 reserve-slot trios + the "
+                "GENKSYMS-bypass variant) on this branch - task_struct "
+                "may have diverged further upstream. Continuing WITHOUT "
+                "Droidspaces support (defconfig options are not added "
+                "either, to avoid a bootloop from enabling CONFIG_SYSVIPC "
+                "without the matching kABI fix)."
             )
             self._mark("droidspaces", "failed", "no sysvipc kabi variant applied cleanly")
             return
