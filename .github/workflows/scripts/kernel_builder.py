@@ -853,15 +853,18 @@ CONFIG_CIFS=y
         applies the first one that actually fits this exact source tree.
 
         Only wired up for kernel_version < 6.12 (android12-5.10,
-        android13-5.15, android14-6.1 - the branches this project
-        currently builds). 6.12+ needs a structurally different patch
-        (extra EXPORT_SYMBOL_GPL calls instead of kABI reserve slots)
-        that isn't vendored here yet.
+        android13-5.15, android14-6.1, android15-6.6 - the branches
+        this project currently builds; all four use the same
+        ANDROID_KABI_RESERVE slot-swap approach, verified identical to
+        WildKernels' upstream droidspaces/fix_sysvipc_kabi_*.patch
+        files). 6.12+ needs a structurally different patch (a
+        __kabi_ignored union + __attribute__((packed)) trick instead of
+        reserve slots) that isn't vendored here yet.
         """
         if not self.config.use_droidspaces:
             self._mark("droidspaces", "skipped", "not requested")
             return
-        if self.config.kernel_version not in ("5.10", "5.15", "6.1"):
+        if self.config.kernel_version not in ("5.10", "5.15", "6.1", "6.6"):
             logger.warning(
                 f"Droidspaces support requested but not implemented yet for "
                 f"kernel {self.config.kernel_version} (only 5.10/5.15/6.1 are "
@@ -974,10 +977,10 @@ CONFIG_CIFS=y
         here, unlike Droidspaces - BBRv3 doesn't touch struct layouts
         that are kABI-tracked).
 
-        Only wired up for android12-5.10, android13-5.15, android14-6.1
-        so far (the branches this project builds) - WildKernels also
-        publish an android15-6.6 variant, not vendored here yet since
-        nothing currently built uses that branch.
+        Only wired up for android12-5.10, android13-5.15, android14-6.1,
+        android15-6.6 so far (the branches this project builds).
+        WildKernels also publish an android16-6.12 variant, not vendored
+        here yet since nothing currently built uses that branch.
 
         Two small prerequisite patches (proc_dou8vec_minmax() and its
         follow-up data-race fix) are tried first with -N (skip
@@ -1006,7 +1009,7 @@ CONFIG_CIFS=y
             self._mark("bbrv3", "skipped", "not requested")
             return
         fb = f"{self.config.android_version}-{self.config.kernel_version}"
-        if fb not in ("android12-5.10", "android13-5.15", "android14-6.1"):
+        if fb not in ("android12-5.10", "android13-5.15", "android14-6.1", "android15-6.6"):
             logger.warning(f"BBRv3 requested but not implemented yet for {fb} - skipping")
             self._mark("bbrv3", "skipped", f"{fb} not supported yet")
             return
