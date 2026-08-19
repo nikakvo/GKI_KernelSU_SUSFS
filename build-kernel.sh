@@ -43,9 +43,9 @@ LOGFILE="$HOME/build-$(date +%Y%m%d-%H%M%S).log"
 # ---- Default values ----
 ANDROID_VERSION="android13"
 KERNEL_VERSION="5.15"
-SUB_LEVEL="206"
+SUB_LEVEL="211"
 OS_PATCH="2026-06"
-KERNEL_TAG="android13-5.15-2026-06_r4"
+KERNEL_TAG="android13-5.15.211_r00"
 # Set to "1" if KERNEL_TAG above is an LTS-merge respin (e.g.
 # android13-5.15.209_r00, dotted sub_level style) rather than a regular
 # date-based one (e.g. android13-5.15-2026-06_r4) - adds a "-lts" marker
@@ -53,10 +53,16 @@ KERNEL_TAG="android13-5.15-2026-06_r4"
 IS_LTS=""
 # Set to "1" to enable Droidspaces container-runtime support (real
 # Linux namespace isolation - see README's "Droidspaces" section).
-# Only wired up for android12-5.10/android13-5.15/android14-6.1 so far.
+# Wired up for android12-5.10/android13-5.15/android14-6.1/android15-6.6
+# (below-6.12 branches). Only 3 legitimate ANDROID_KABI_RESERVE-based
+# kABI patch variants are tried, in order - if none matches this
+# sub_level's task_struct layout, Droidspaces is cleanly skipped for
+# that build rather than forcing a match (currently happens on some
+# android15-6.6 sub_levels - check PATCH_STATUS.json's "droidspaces"
+# entry after a build to see whether it actually landed).
 # Defaults to enabled - set to "" to build without it.
 DROIDSPACES="1"
-# Congestion control: "none", "bbr1", or "bbr3" (android12/13/14 only
+# Congestion control: "none", "bbr1", or "bbr3" (android12/13/14/15
 # so far - see README's "BBRv3" note).
 BBR_VERSION="bbr3"
 # Set to "1" to enable Baseband-guard (blocks unauthorized writes to
@@ -83,16 +89,14 @@ USE_ZRAM="1"
 USE_MGLRU="1"
 USE_PSI="1"
 USE_NTSYNC="1"
-# Set to "1" to allow building branches/sub_levels that require Bazel/Kleaf
-# instead of the legacy build/build.sh script (android15-6.6+, and some
-# newer android14-6.1 sub_levels that have already migrated). OFF by
-# default - without this, the build refuses to start on a Bazel-only
-# branch/tag rather than silently building one. A confirmed real-device
-# bootloop was traced back to a Bazel build that disabled KMI symbol-list
-# enforcement to get the build to compile; when this flag IS enabled,
-# that enforcement is left fully ON, so a genuine symbol-list violation
+# NOTE: there used to be an ALLOW_BAZEL flag here gating whether
+# Bazel/Kleaf-only branches (android15-6.6+, some newer android14-6.1
+# sub_levels) were allowed to build at all. Removed - kernel_builder.py
+# now builds those branches automatically the same as legacy
+# build/build.sh branches (is_legacy is auto-detected either way). KMI
+# symbol-list enforcement stays fully ON regardless - that was always
+# the actual safety net, not the flag - so a genuine violation still
 # fails the build loudly instead of producing an unverified Image.
-ALLOW_BAZEL=""
 
 # ============================================================
 #  Dependency check / auto-install
@@ -222,7 +226,6 @@ for key, entries in data.items():
         [ -z "$USE_MGLRU" ] && EXTRA_ARGS+=(--no-mglru)
         [ -z "$USE_PSI" ] && EXTRA_ARGS+=(--no-psi)
         [ -z "$USE_NTSYNC" ] && EXTRA_ARGS+=(--no-ntsync)
-        [ -n "$ALLOW_BAZEL" ] && EXTRA_ARGS+=(--allow-bazel)
 
         if python3 build.py \
             --android "$a" \
@@ -297,7 +300,6 @@ EXTRA_ARGS=()
 [ -z "$USE_MGLRU" ] && EXTRA_ARGS+=(--no-mglru)
 [ -z "$USE_PSI" ] && EXTRA_ARGS+=(--no-psi)
 [ -z "$USE_NTSYNC" ] && EXTRA_ARGS+=(--no-ntsync)
-[ -n "$ALLOW_BAZEL" ] && EXTRA_ARGS+=(--allow-bazel)
 
 python3 build.py \
     --android "$ANDROID_VERSION" \
