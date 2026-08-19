@@ -1703,6 +1703,42 @@ CONFIG_CIFS=y
             else:
                 logger.warning("savedefconfig did not produce an output file, leaving gki_defconfig as-is")
 
+    def _write_kasan_choice_fragment(self):
+        """Bazel/Kleaf branches (android14+): CONFIG_KASAN_GENERIC /
+        CONFIG_KASAN_SW_TAGS / CONFIG_KASAN_HW_TAGS are a Kconfig
+        'choice' (radio-button) group. gki_defconfig's own choice
+        default resolves to GENERIC unless the other members are
+        *explicitly* disabled in the same defconfig layer - just adding
+        'CONFIG_KASAN_HW_TAGS=y' is not enough, and gets silently
+        dropped back to GENERIC by _canonicalize_defconfig()'s
+        `make gki_defconfig` re-expansion. Confirmed by direct
+        inspection of the actual compiled .config
+        (bazel-bin/common/kernel_aarch64_config/out_dir/.config) showing
+        KASAN_GENERIC=y / HW_TAGS unset despite a manual gki_defconfig
+        edit. The certified KMI symbol list for these branches expects
+        kasan_flag_enabled exported (it's in every vendor
+        abi_gki_aarch64_* list plus the frozen .stg), which only
+        happens under HW_TAGS.
+
+        Applied via --defconfig_fragment instead of editing gki_defconfig
+        directly, mirroring coolzyd9107/GKI_SukiSU_Ultra_SUSFS's own
+        working pipeline (same path convention:
+        common/arch/arm64/configs/<name>.fragment, no BUILD.bazel edit
+        needed since that directory is already covered by an existing
+        glob()). Unlike that project, we do NOT strip
+        KMI_SYMBOL_LIST_STRICT_MODE or protected_exports - KMI
+        enforcement stays on; this fragment only resolves the KASAN
+        choice so the build's actual ksymtab matches what strict mode
+        expects, instead of bypassing the check itself."""
+        common_dir = self.work_dir / "common"
+        frag_path = common_dir / "arch/arm64/configs/kasan_fix.fragment"
+        frag_path.write_text(
+            "# CONFIG_KASAN_GENERIC is not set\n"
+            "# CONFIG_KASAN_SW_TAGS is not set\n"
+            "CONFIG_KASAN_HW_TAGS=y\n"
+        )
+        logger.info(f"Wrote KASAN choice fragment: {frag_path}")
+
     @property
     def artifact_suffix(self) -> str:
         """LTO is always thin - no fallback mode exists anymore, so this
@@ -1815,18 +1851,37 @@ CONFIG_CIFS=y
         is_legacy = (self.work_dir / "build/build.sh").exists()
         bazel_cache = Path.home() / ".cache" / "bazel"
 
-        if not is_legacy and not self.config.allow_bazel:
-            logger.error(
-                "This branch/sub_level requires Bazel/Kleaf (no build/build.sh present in "
-                "the synced source) - refusing to build. A prior Bazel build on a different "
-                "branch was confirmed to cause a real-device bootloop, traced back to "
-                "disabling KMI symbol-list enforcement to get the build to compile. Pass "
-                "--allow-bazel to build anyway (KMI enforcement will be left ON, so if the "
-                "patches genuinely violate the symbol list, the build will fail with the "
-                "violation list instead of silently producing a possibly-incompatible Image)."
-            )
-            self._mark("build", "failed", "Bazel required but --allow-bazel not passed")
-            return False
+        # Historical note: this used to refuse Bazel/Kleaf branches unless
+        # --allow-bazel was passed explicitly. That guard existed because
+        # a prior Bazel build on a different branch was once made to
+        # compile by disabling KMI symbol-list enforcement, and that
+        # confirmed a real-device bootloop - the Image's exported symbol
+        # table silently didn't match what the device's vendor .ko
+        # modules expected.
+        #
+        # The actual safety property was never the flag - it's that KMI
+        # enforcement stays ON unconditionally below (no
+        # --nokmi_symbol_list_strict_mode, no stripped protected_exports).
+        # With the KASAN Kconfig-choice fix in
+        # _write_kasan_choice_fragment() (see there for the full story -
+        # tl;dr CONFIG_KASAN_GENERIC/SW_TAGS/HW_TAGS is a Kconfig 'choice'
+        # group and gki_defconfig's own default silently overrides a bare
+        # 'CONFIG_KASAN_HW_TAGS=y'), a from-scratch Bazel/Kleaf build on
+        # android14-6.1-172 has now actually been verified end-to-end:
+        # kmi_symbol_list_strict_mode and kmi_symbol_list_violations both
+        # ran and passed for real, not bypassed. So Bazel branches now
+        # build automatically here, same as legacy build.sh branches -
+        # no manual per-run opt-in needed for the whole matrix to build.
+        #
+        # This is still self-enforcing per-branch/sub_level: if some
+        # OTHER Bazel branch (e.g. a different android15-6.6 sub_level,
+        # or android16 later) hits a genuine KMI violation that isn't
+        # this same KASAN choice quirk, the build fails loudly here with
+        # the specific violation list - it does not silently produce an
+        # unverified Image. That failure is the safety net now, not a
+        # flag someone has to remember to pass.
+        if not is_legacy:
+            logger.info("Bazel/Kleaf branch detected - building automatically (KMI enforcement stays ON).")
 
         # Known LLVM/ThinLTO verifier bug on Bazel/Kleaf branches (6.6 and
         # up so far): cross-module inlining under ThinLTO can produce an
@@ -1864,8 +1919,9 @@ CONFIG_CIFS=y
             # - which is strictly more useful than a silent, unverified
             # "success".
             lto_flag = "" if self.config.kernel_version in _THIN_LTO_BUG_KERNEL_VERSIONS else "--lto=thin "
+            frag_flag = "--defconfig_fragment=//common:arch/arm64/configs/kasan_fix.fragment "
             return (f"tools/bazel build --disk_cache={bazel_cache} --config=fast "
-                    f"{lto_flag}//common:kernel_aarch64/Image")
+                    f"{lto_flag}{frag_flag}//common:kernel_aarch64/Image")
 
         try:
             if is_legacy:
@@ -1873,6 +1929,7 @@ CONFIG_CIFS=y
             else:
                 logger.info("Using Bazel build method (KMI enforcement left ON)...")
                 self._canonicalize_defconfig()
+                self._write_kasan_choice_fragment()
                 bazel_cache.mkdir(parents=True, exist_ok=True)
 
             # No fallback retry on failure - if the build fails, it fails,
