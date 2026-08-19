@@ -826,70 +826,22 @@ CONFIG_CIFS=y
         logger.info(f"Blacklisted vendor modules: {self.config.blacklist_modules}")
         self._mark("vendor_module_blacklist", "applied", self.config.blacklist_modules)
 
-    def _try_genksyms_regex_fallback(self, common_dir):
-        """Last-resort fallback when all 4 vendored SYSVIPC kABI patch
-        variants fail to apply. Those are all positional unified diffs -
-        brittle against upstream reordering struct task_struct's fields
-        (confirmed firsthand on android15-6.6.142: rt_priority is
-        immediately followed by sched_class on the branches the bypass
-        patch was written against, but on .142 se/rt/dl sit between
-        them instead - a genuine upstream field reshuffle, not a
-        divergence in our own patch set).
-
-        Reimplements the same GENKSYMS-bypass transformation
-        (droidspaces_sysvipc_kabi_bypass.patch) via text-marker search
-        instead of line-position context, so it survives that kind of
-        reordering:
-          1. find 'const struct sched_class\\s*\\*sched_class;' wherever
-             it actually sits, insert the new fields right after it
-             inside a '#ifndef __GENKSYMS__' block (invisible to the
-             kABI checksum tool, same as the bypass patch)
-          2. find the existing 'struct sysv_sem sysvsem;' /
-             'struct sysv_shm sysvshm;' pair under '#ifdef CONFIG_SYSVIPC'
-             and comment both out, so they're not double-declared
-
-        Deliberately conservative: bails out (returns None, no file
-        write) unless BOTH markers are found exactly once each. No
-        fuzzy/partial matching - same reasoning as never fuzzing the
-        positional patches: a confident "can't find it" is safer than
-        a guess that silently lands wrong.
-        """
-        sched_h = common_dir / "include/linux/sched.h"
-        if not sched_h.exists():
-            return None
-        content = sched_h.read_text()
-
-        if "__GENKSYMS__" in content and "sysvsem" in content.split("__GENKSYMS__")[1][:200]:
-            return None  # already patched somehow, don't double-apply
-
-        sched_class_re = re.compile(r'(\n[ \t]*const struct sched_class[ \t]*\*sched_class;\n)')
-        if len(sched_class_re.findall(content)) != 1:
-            return None
-        insertion = (
-            "\n#ifndef __GENKSYMS__\n"
-            "\tstruct sysv_sem\t\t\tsysvsem;\n"
-            "\tstruct sysv_shm\t\t\tsysvshm;\n"
-            "#endif\n"
-        )
-        content = sched_class_re.sub(lambda m: m.group(1) + insertion, content, count=1)
-
-        orig_block_re = re.compile(
-            r'(#ifdef CONFIG_SYSVIPC\n)'
-            r'([ \t]*struct sysv_sem[ \t]*sysvsem;\n)'
-            r'([ \t]*struct sysv_shm[ \t]*sysvshm;\n)'
-            r'(#endif)'
-        )
-        matches = orig_block_re.findall(content)
-        if len(matches) != 1:
-            return None  # don't touch the file if this didn't come out 1:1 clean
-        content = orig_block_re.sub(
-            lambda m: m.group(1) + "\t// " + m.group(2).strip() + "\n\t// " + m.group(3).strip() + "\n" + m.group(4),
-            content, count=1,
-        )
-
-        sched_h.write_text(content)
-        logger.info("Droidspaces SYSVIPC: applied GENKSYMS-bypass via regex fallback (sched.h field order differs from the vendored patch's expected context)")
-        return "regex-fallback (sched_class marker search)"
+    # NOTE: a GENKSYMS-bypass regex fallback used to live here
+    # (_try_genksyms_regex_fallback). Removed after a confirmed real-device
+    # bootloop: '#ifndef __GENKSYMS__' only hides new fields from genksyms'
+    # CRC symbol-versioning tool - it does NOT reserve/account for their
+    # bytes in the real compiled struct layout, unlike ANDROID_KABI_RESERVE
+    # slots (see the 3 slot patches below, which correctly reuse pre-
+    # reserved padding and are genuinely kABI-safe). Every field declared
+    # after the injected ones in struct task_struct silently shifts to a
+    # different real offset, while our kmi_symbol_list_strict_mode /
+    # kmi_symbol_list_violations checks only validate the *exported
+    # symbol* list - they don't diff internal struct layouts, so this
+    # class of break is invisible at build time and only surfaces as
+    # vendor .ko modules (built against stock offsets) reading/writing
+    # the wrong memory on a real device. Don't reintroduce a
+    # non-reserved-slot struct modification for a kABI-tracked type,
+    # regardless of how "clean" the build-time checks look.
 
     def apply_droidspaces_support(self):
         """Enables Droidspaces (github.com/ravindu644/Droidspaces-OSS)
@@ -950,24 +902,20 @@ CONFIG_CIFS=y
             return
 
         patch_dir = Path(__file__).parent / "patches"
+        # Only the 3 ANDROID_KABI_RESERVE reserve-slot variants - these
+        # reuse padding bytes Google pre-allocated specifically so
+        # vendors can repurpose them without shifting any other field's
+        # offset, so they're genuinely kABI-safe. A GENKSYMS-bypass
+        # variant (adds real new fields hidden from genksyms' CRC tool
+        # instead of using reserved padding) used to be tried as a 4th
+        # fallback here - removed after it caused a confirmed real-device
+        # bootloop (see the note above _try_genksyms_regex_fallback's old
+        # location for the full mechanism). Don't re-add a non-reserved-
+        # slot struct modification here.
         sysvipc_variants = [
             "droidspaces_sysvipc_kabi_slots678.patch",  # upstream's default choice for every below-6.12 branch - tried first
             "droidspaces_sysvipc_kabi_slots345.patch",
             "droidspaces_sysvipc_kabi_slots123.patch",
-            # None of the 3 reserve-slot variants above matched cleanly
-            # on android15-6.6 (all 3 failed at the same hunk - those
-            # specific reserve slots are apparently already claimed by
-            # something else on that branch). WildKernels added this
-            # alternative 10 days after the original 3
-            # ("...using different method", commit 98783ea): instead of
-            # guessing which ANDROID_KABI_RESERVE slot is free, it adds
-            # sysvsem/sysvshm inside a '#ifndef __GENKSYMS__' block
-            # (invisible to the kABI checksum tool entirely) and
-            # comments out the original in-place fields, so it doesn't
-            # depend on reserve-slot availability at all. Tried last so
-            # branches where the slot-based patches already work
-            # (12/13/14) keep using the exact same path as before.
-            "droidspaces_sysvipc_kabi_bypass.patch",
         ]
         applied_variant = None
         self._chdir(common_dir)
@@ -975,20 +923,14 @@ CONFIG_CIFS=y
             patch_file = patch_dir / variant
             if not patch_file.exists():
                 continue
-            # -F 0 always, no exceptions - including the bypass variant.
-            # A fuzzy "clean" apply on a struct-layout patch can insert
-            # the new field block at a structurally wrong place (not
-            # just a wrong reserve slot) even when patch(1) reports
-            # success. Confirmed the hard way: fuzz=3 on the bypass
-            # variant here once "applied" cleanly but landed Hunk #1
-            # somewhere that didn't actually put sysvsem/sysvshm inside
-            # struct task_struct's real scope - the build compiled
-            # CONFIG_SYSVIPC=y (since applied_variant was set) and then
-            # failed with "no member named 'sysvsem' in 'struct
-            # task_struct'" in ipc/sem.c. A clean failure here (droidspaces:
-            # failed, config options never added) is the correct/safe
-            # outcome when nothing matches - never trade that for a
-            # fuzzy "success" on this class of patch.
+            # -F 0 always, no exceptions. A fuzzy "clean" apply on a
+            # struct-layout patch can insert the new field block at a
+            # structurally wrong place (not just a wrong reserve slot)
+            # even when patch(1) reports success - confirmed the hard
+            # way once already on the (now-removed) bypass variant. A
+            # clean failure here (droidspaces: failed, config options
+            # never added) is the correct/safe outcome when nothing
+            # matches - never trade that for a fuzzy "success".
             dry_run = self._run_cmd(f"patch -p1 -F 0 --dry-run < {patch_file}", check=False)
             if dry_run.returncode == 0:
                 self._run_cmd(f"patch -p1 -F 0 < {patch_file}", check=False)
@@ -997,13 +939,10 @@ CONFIG_CIFS=y
         self._chdir(self.work_dir)
 
         if not applied_variant:
-            applied_variant = self._try_genksyms_regex_fallback(common_dir)
-
-        if not applied_variant:
             logger.warning(
                 "Droidspaces SYSVIPC kABI patch did not cleanly match any "
-                "of the 4 known variants (3 reserve-slot trios + the "
-                "GENKSYMS-bypass variant) on this branch - task_struct "
+                "of the 3 known ANDROID_KABI_RESERVE slot layouts on this "
+                "branch - task_struct may have diverged further upstream. "
                 "may have diverged further upstream. Continuing WITHOUT "
                 "Droidspaces support (defconfig options are not added "
                 "either, to avoid a bootloop from enabling CONFIG_SYSVIPC "
