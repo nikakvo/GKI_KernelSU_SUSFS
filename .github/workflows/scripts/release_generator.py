@@ -47,14 +47,14 @@ class ReleaseGenerator:
 - BBG (Baseband-guard) Support
 - ZRAM Support
 - LZ4KD Compression Support
-- MGLRU Support (Multi-Gen LRU, enabled by default)
+- MGLRU Support (Multi-Gen LRU)
 - PSI Support (Pressure Stall Information)
 - IP Set Support (netfilter IP/network grouping)
 - CAKE Queue Discipline Support
 - Wireguard Support
 - NTSync Support (Winlator/Wine NT synchronization primitives)
 - Droidspaces Support (real container namespaces)
-- Additional TCP Congestion Control Algorithms (BIC, Westwood, HTCP)
+- Additional TCP Congestion Control Algorithms Support (BIC, Westwood, HTCP)
 - TTL/Hop-Limit Target Support (netfilter)
 - Connection Mark (connmark) Support (netfilter)
 - CIFS/SMB Network Filesystem Support
