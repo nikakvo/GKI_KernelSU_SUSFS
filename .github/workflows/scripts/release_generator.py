@@ -49,7 +49,7 @@ class ReleaseGenerator:
 - LZ4KD Compression Support
 - MGLRU Support (Multi-Gen LRU)
 - PSI Support (Pressure Stall Information)
-- IP Set Support (netfilter IP/network grouping)
+- IP Set Support (netfilter IP/network grouping) - [ipset-arm64](https://github.com/nikakvo/ipset-arm64)
 - CAKE Queue Discipline Support
 - Wireguard Support
 - NTSync Support (Winlator/Wine NT synchronization primitives)
